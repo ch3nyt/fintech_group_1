@@ -160,6 +160,9 @@ class TemporalVitonHDDataset(data.Dataset):
             target_week = week_keys[i]
             past_weeks = week_keys[max(0, i-self.num_past_weeks):i]
 
+            # Check if there's a next week for actual text comparison
+            next_week = week_keys[i + 1] if i + 1 < len(week_keys) else None
+
             # Calculate temporal weights
             weights = [self.temporal_weight_decay ** (len(past_weeks) - j - 1)
                       for j in range(len(past_weeks))]
@@ -173,13 +176,21 @@ class TemporalVitonHDDataset(data.Dataset):
                                           if category in self.weekly_data[w]
                                           and len(self.weekly_data[w][category]) > 0]
 
+                    # Get next week's actual data for comparison (if available)
+                    next_week_item = None
+                    if next_week and category in self.weekly_data[next_week] and len(self.weekly_data[next_week][category]) > 0:
+                        # Sample a random item from next week's same category
+                        next_week_item = random.choice(self.weekly_data[next_week][category])
+
                     if len(past_weeks_with_data) > 0:
                         samples.append({
                             'target_item': target_item,
                             'target_week': target_week,
                             'past_weeks': past_weeks_with_data,
                             'temporal_weights': weights[-len(past_weeks_with_data):],
-                            'category': category
+                            'category': category,
+                            'next_week_item': next_week_item,  # For actual next week text
+                            'next_week': next_week
                         })
 
         return samples
@@ -364,10 +375,17 @@ class TemporalVitonHDDataset(data.Dataset):
         # Since we don't use pose maps, create dummy pose map
         pose_map = torch.zeros(18, self.height, self.width)
 
+        # Get next week's actual text if available
+        next_week_actual_text = ""  # Default to empty string instead of None
+        if sample_info['next_week_item'] is not None:
+            next_week_item = sample_info['next_week_item']
+            _, next_week_actual_text = self._encode_captions(next_week_item['product_id'])
+
         return {
             # Target data
             'image': target_image,
             'im_sketch': target_sketch,
+            'im_seg': target_seg,  # Add segmentation mask
             'inpaint_mask': target_mask,
             'pose_map': pose_map,  # Dummy pose map
             'captions': target_captions,
@@ -377,10 +395,15 @@ class TemporalVitonHDDataset(data.Dataset):
             'past_conditioning': past_conditioning,
             'temporal_weights': torch.tensor(temporal_weights, dtype=torch.float32),
 
+            # Next week data
+            'next_week_actual_text': next_week_actual_text,
+
             # Metadata
             'im_name': os.path.basename(target_item['image_path']),
             'product_id': target_item['product_id'],
             'category': target_item['category'],
             'target_week': sample_info['target_week'],
-            'past_weeks': sample_info['past_weeks']
+            'past_weeks': sample_info['past_weeks'],
+            'next_week_item_id': sample_info['next_week_item']['product_id'] if sample_info['next_week_item'] else "",
+            'next_week': sample_info['next_week'] if sample_info['next_week'] else ""
         }

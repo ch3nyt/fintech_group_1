@@ -71,6 +71,19 @@ def compute_temporal_consistency_loss(current_latents, past_conditioning, tempor
     # Extract weighted features from past conditioning
     weighted_past_features = past_conditioning['weighted_sketch']
 
+    # Handle shape mismatch: weighted_past_features might have extra dimensions
+    if len(weighted_past_features.shape) == 5:  # [1, 1, 1, H, W]
+        weighted_past_features = weighted_past_features.squeeze(1).squeeze(1)  # [1, H, W]
+    elif len(weighted_past_features.shape) == 4 and weighted_past_features.shape[1] == 1:  # [1, 1, H, W]
+        weighted_past_features = weighted_past_features.squeeze(1)  # [1, H, W]
+
+    # Ensure weighted_past_features has the right number of channels to match current_latents
+    if len(weighted_past_features.shape) == 3:  # [B, H, W]
+        # Expand to match current_latents channels [B, C, H, W]
+        weighted_past_features = weighted_past_features.unsqueeze(1)  # [B, 1, H, W]
+        # Repeat across channels to match current_latents
+        weighted_past_features = weighted_past_features.repeat(1, current_latents.shape[1], 1, 1)
+
     # Downsample current latents to match conditioning size
     current_features = F.interpolate(
         current_latents,
@@ -80,7 +93,7 @@ def compute_temporal_consistency_loss(current_latents, past_conditioning, tempor
     )
 
     # Compute L2 distance weighted by temporal weights
-    consistency_loss = F.mse_loss(current_features, weighted_past_features.unsqueeze(0))
+    consistency_loss = F.mse_loss(current_features, weighted_past_features)
 
     # Weight by temporal importance (more recent should have higher influence)
     temporal_weight = temporal_weights.max()  # Use highest weight (most recent)
@@ -118,7 +131,16 @@ def main():
 
     # Initialize wandb
     if args.use_wandb and accelerator.is_main_process:
-        wandb.init(project=args.project_name, config=vars(args))
+        try:
+            import wandb
+            wandb.init(project=args.project_name, config=vars(args))
+            wandb_available = True
+        except Exception as e:
+            print(f"Warning: Failed to initialize wandb: {e}")
+            print("Continuing training without wandb logging...")
+            wandb_available = False
+    else:
+        wandb_available = False
 
     # Load models
     tokenizer = CLIPTokenizer.from_pretrained(
@@ -135,13 +157,18 @@ def main():
     )
 
     # Load UNet - start from pretrained MGD model
-    unet = torch.hub.load(
-        dataset='vitonhd',  # or your preferred base dataset
-        repo_or_dir='aimagelab/multimodal-garment-designer',
-        source='github',
-        model='mgd',
-        pretrained=True
-    )
+    try:
+        unet = torch.hub.load(
+            dataset='vitonhd',  # or your preferred base dataset
+            repo_or_dir='aimagelab/multimodal-garment-designer',
+            source='github',
+            model='mgd',
+            pretrained=True
+        )
+        logger.info("Successfully loaded MGD UNet model")
+    except Exception as e:
+        logger.error(f"Failed to load MGD UNet model: {e}")
+        raise e
 
     # Freeze VAE and text encoder
     vae.requires_grad_(False)
@@ -157,16 +184,24 @@ def main():
     # Enable gradient checkpointing to save memory
     unet.enable_gradient_checkpointing()
 
+    # Note: The torch.utils.checkpoint deprecation warning is handled by the framework
+
     # Prepare dataset
-    train_dataset = TemporalVitonHDDataset(
-        dataroot_path=args.dataset_path,
-        phase='train',
-        tokenizer=tokenizer,
-        num_past_weeks=args.num_past_weeks,
-        temporal_weight_decay=args.temporal_weight_decay,
-        size=(512, 384),
-        category_filter=args.categories  # Filter specific categories if provided
-    )
+    try:
+        train_dataset = TemporalVitonHDDataset(
+            dataroot_path=args.dataset_path,
+            phase='train',
+            tokenizer=tokenizer,
+            num_past_weeks=args.num_past_weeks,
+            temporal_weight_decay=args.temporal_weight_decay,
+            size=(512, 384),
+            category_filter=args.categories  # Filter specific categories if provided
+        )
+        logger.info(f"Successfully created dataset with {len(train_dataset)} samples")
+    except Exception as e:
+        logger.error(f"Failed to create temporal dataset: {e}")
+        logger.error(f"Dataset path: {args.dataset_path}")
+        raise e
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -327,7 +362,7 @@ def main():
                             'temporal': f'{temporal_loss.item():.4f}'
                         })
 
-                        if args.use_wandb and accelerator.is_main_process:
+                        if wandb_available and accelerator.is_main_process:
                             wandb.log({
                                 'train/total_loss': avg_loss,
                                 'train/main_loss': main_loss.item(),
@@ -367,7 +402,7 @@ def main():
 
         logger.info("Training completed and final model saved!")
 
-    if args.use_wandb and accelerator.is_main_process:
+    if wandb_available and accelerator.is_main_process:
         wandb.finish()
 
 

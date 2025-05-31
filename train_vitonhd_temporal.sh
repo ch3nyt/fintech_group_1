@@ -35,13 +35,12 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/train_temporal.py \
     --temporal_weight_decay 0.8 \
     --temporal_loss_weight 0.3 \
     --learning_rate 1e-5 \
-    --max_train_steps 10000 \
+    --max_train_steps 5000 \
     --batch_size 1 \
     --mixed_precision fp16 \
     --gradient_accumulation_steps 16 \
-    --save_steps 1000 \
+    --save_steps 500 \
     --num_workers 1 \
-    --use_wandb \
     --project_name "temporal-vitonhd" \
     --seed 42 2>&1 | tee -a "$LOG_FILE"
 
@@ -51,7 +50,7 @@ echo "Training completed!" | tee -a "$LOG_FILE"
 echo "Running evaluation on test set..." | tee -a "$LOG_FILE"
 python3 src/eval_temporal.py \
     --dataset_path $DATASET_PATH \
-    --checkpoint_path $OUTPUT_DIR/$EXPERIMENT_NAME/final_model/unet.pth \
+    --checkpoint_path /root/multimodal-garment-designer/temporal_vitonhd_checkpoints/temporal_vitonhd_20250531_173346/checkpoint-1000/unet.pth \
     --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME/test_results \
     --batch_size 1 \
     --num_workers_test 1 \

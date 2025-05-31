@@ -118,13 +118,13 @@ class TemporalPredictor:
         self.vae.to(self.device, dtype=weight_dtype)
         self.unet.to(self.device, dtype=weight_dtype)
 
-    def predict_next_week(self, past_weeks_data, target_style_prompt=None):
+    def predict_next_week(self, past_weeks_data, next_week_actual_text=None):
         """
         Predict garments for next week based on past weeks
 
         Args:
             past_weeks_data: List of past week data
-            target_style_prompt: Optional style prompt for next week
+            next_week_actual_text: Actual text from next week's data
         """
 
         # Create pipeline
@@ -141,25 +141,50 @@ class TemporalPredictor:
         predictions = []
 
         with torch.inference_mode():
-            for week_data in past_weeks_data:
+            for i, week_data in enumerate(past_weeks_data):
                 # Use temporal conditioning from past weeks
                 past_conditioning = week_data['past_conditioning']
 
-                # Generate style prompt for next week
-                if target_style_prompt is None:
-                    # Use evolved style from past trends
-                    base_style = past_conditioning['combined_caption_text']
-                    next_week_style = f"next week trending: {base_style}"
+                # Use actual next week's text instead of evolved text
+                if next_week_actual_text is not None and next_week_actual_text.strip():
+                    next_week_style = next_week_actual_text
                 else:
-                    next_week_style = target_style_prompt
+                    # Fallback to evolved style if no actual next week text available
+                    base_style = past_conditioning['combined_caption_text']
 
-                # Generate prediction
+                    # Extract key style elements from past trends
+                    if "trending style:" in base_style:
+                        # Extract the current trending part
+                        trending_part = base_style.split("trending style:")[1].split(",")[0].strip()
+                        next_week_style = f"next week fashion trend: {trending_part}, modern updated styling"
+                    else:
+                        # Fallback if no trending info
+                        next_week_style = f"next week trending: {base_style}, contemporary fashion"
+
+                    # Limit length to avoid token issues
+                    if len(next_week_style) > 150:
+                        next_week_style = next_week_style[:150] + "..."
+
+                # Display the caption being used
+                print(f"\n🎨 Generating image {i+1}/{len(past_weeks_data)}")
+                print(f"🏷️  Category: {week_data['category']}")
+                print(f"🆔 Product ID: {week_data['product_id']}")
+                print(f"⚖️  Temporal weights: {week_data['temporal_weights']}")
+                print(f"🎯 Using current week's target sketch as base structure")
+                print(f"📝 Base style: '{past_conditioning['combined_caption_text']}'")
+                if next_week_actual_text is not None and next_week_actual_text.strip():
+                    print(f"📅 Next week's actual text: '{next_week_style}'")
+                else:
+                    print(f"🔮 Evolved caption: '{next_week_style}'")
+                print("🔄 Generating...")
+
+                # Generate prediction using current week's target sketch and next week's actual text
                 generated_images = pipe(
                     prompt=[next_week_style],
                     image=week_data['image'].unsqueeze(0),
                     mask_image=week_data['inpaint_mask'].unsqueeze(0),
                     pose_map=week_data['pose_map'].unsqueeze(0),
-                    sketch=past_conditioning['weighted_sketch'].unsqueeze(0),
+                    sketch=week_data['im_sketch'].unsqueeze(0),  # Use current week's target sketch
                     height=512,
                     width=384,
                     guidance_scale=self.args.guidance_scale,
@@ -168,13 +193,17 @@ class TemporalPredictor:
                     no_pose=self.args.no_pose,
                 ).images
 
+                print("✅ Generation completed!")
+
                 predictions.append({
                     'generated_image': generated_images[0],
                     'style_prompt': next_week_style,
+                    'base_style': past_conditioning['combined_caption_text'],
                     'base_image': week_data['im_name'],
                     'temporal_weights': week_data['temporal_weights'],
                     'category': week_data['category'],
-                    'product_id': week_data['product_id']
+                    'product_id': week_data['product_id'],
+                    'is_actual_next_week_text': next_week_actual_text is not None and next_week_actual_text.strip() != ""
                 })
 
         return predictions
@@ -197,7 +226,7 @@ class TemporalPredictor:
             test_dataset,
             shuffle=False,
             batch_size=self.args.batch_size,
-            num_workers=self.args.num_workers_test,
+            num_workers=0,  # Disable multiprocessing to avoid worker issues
         )
 
         test_dataloader = self.accelerator.prepare(test_dataloader)
@@ -206,6 +235,12 @@ class TemporalPredictor:
         os.makedirs(self.args.output_dir, exist_ok=True)
         predictions_dir = os.path.join(self.args.output_dir, "predictions")
         os.makedirs(predictions_dir, exist_ok=True)
+
+        # Create caption log file
+        caption_log_path = os.path.join(self.args.output_dir, "captions_used.txt")
+        caption_log = open(caption_log_path, 'w', encoding='utf-8')
+        caption_log.write("Temporal VITONhd Inference - Captions Used\n")
+        caption_log.write("=" * 50 + "\n\n")
 
         # Create category subdirectories
         categories = self.args.categories if self.args.categories else test_dataset.CATEGORIES
@@ -218,11 +253,37 @@ class TemporalPredictor:
         logger.info(f"Evaluating on categories: {categories}")
 
         for batch_idx, batch in enumerate(tqdm(test_dataloader, desc="Generating predictions")):
+            print(f"\n{'='*60}")
+            print(f"🔄 Processing batch {batch_idx + 1}/{len(test_dataloader)}")
+            print(f"📁 Base image: {batch['im_name'][0]}")
+
+            # Decode the original caption from tokens to text
+            if 'original_captions' in batch:
+                # Use the text caption directly from dataset
+                print(f"📝 Original caption: '{batch['original_captions'][0]}'")
+            elif 'captions' in batch:
+                try:
+                    # Decode the tokenized caption back to text
+                    original_caption_text = self.tokenizer.decode(batch['captions'][0], skip_special_tokens=True)
+                    print(f"📝 Original caption: '{original_caption_text}'")
+                except:
+                    print(f"📝 Original caption: [Unable to decode]")
+            else:
+                print(f"📝 Original caption: N/A")
+
+            # Show next week information
+            if 'next_week_actual_text' in batch and batch['next_week_actual_text'][0] and batch['next_week_actual_text'][0].strip():
+                print(f"📅 Next week's actual text available: '{batch['next_week_actual_text'][0]}'")
+            else:
+                print(f"⚠️  No next week data available - will use evolved text as fallback")
+
             # Predict next week garments
             predictions = self.predict_next_week([{
                 'image': batch['image'][0],
                 'inpaint_mask': batch['inpaint_mask'][0],
                 'pose_map': batch['pose_map'][0],
+                'im_sketch': batch['im_sketch'][0],  # Current week's target sketch
+                'im_seg': batch['im_seg'][0] if 'im_seg' in batch else None,  # Current week's segmentation
                 'past_conditioning': {
                     'weighted_sketch': batch['past_conditioning']['weighted_sketch'][0],
                     'combined_caption_text': batch['past_conditioning']['combined_caption_text'][0]
@@ -231,7 +292,7 @@ class TemporalPredictor:
                 'temporal_weights': batch['temporal_weights'][0],
                 'category': batch['category'][0],
                 'product_id': batch['product_id'][0]
-            }])
+            }], batch['next_week_actual_text'][0] if 'next_week_actual_text' in batch and batch['next_week_actual_text'][0].strip() else None)
 
             # Save predictions
             for pred_idx, prediction in enumerate(predictions):
@@ -241,14 +302,30 @@ class TemporalPredictor:
 
                 prediction['generated_image'].save(save_path)
 
+                print(f"💾 Saved: {save_path}")
+                print(f"📝 Final caption used: '{prediction['style_prompt']}'")
+
+                # Write to caption log
+                caption_log.write(f"Image: {save_name}\n")
+                caption_log.write(f"Product ID: {prediction['product_id']}\n")
+                caption_log.write(f"Category: {category}\n")
+                caption_log.write(f"Approach: Current week's target sketch + Actual next week's text\n")
+                caption_log.write(f"Base Style: {prediction['base_style']}\n")
+                caption_log.write(f"Generated Caption: {prediction['style_prompt']}\n")
+                caption_log.write(f"Temporal Weights: {prediction['temporal_weights']}\n")
+                caption_log.write("-" * 40 + "\n\n")
+                caption_log.flush()
+
                 # Store metadata
                 all_predictions.append({
                     'prediction_file': os.path.join(category, save_name),
                     'style_prompt': prediction['style_prompt'],
+                    'base_style': prediction['base_style'],
                     'base_image': prediction['base_image'],
                     'temporal_weights': prediction['temporal_weights'].tolist(),
                     'category': category,
-                    'product_id': prediction['product_id']
+                    'product_id': prediction['product_id'],
+                    'is_actual_next_week_text': prediction['is_actual_next_week_text']
                 })
 
         # Save prediction metadata
@@ -266,9 +343,15 @@ class TemporalPredictor:
         with open(os.path.join(self.args.output_dir, 'category_statistics.json'), 'w') as f:
             json.dump(category_stats, f, indent=2)
 
+        # Close caption log
+        caption_log.write(f"\nTotal predictions generated: {len(all_predictions)}\n")
+        caption_log.write(f"Category distribution: {category_stats}\n")
+        caption_log.close()
+
         logger.info(f"Generated {len(all_predictions)} predictions")
         logger.info(f"Category distribution: {category_stats}")
         logger.info(f"Results saved to {self.args.output_dir}")
+        logger.info(f"Caption log saved to {caption_log_path}")
 
         return all_predictions
 

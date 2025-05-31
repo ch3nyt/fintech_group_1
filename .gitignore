@@ -347,3 +347,6 @@ __MACOSX/*
 /dataset_vitonhd_format/*
 /captions/*
 /wandb/*
+/test_results/*
+/test_results_temporal/*
+/test_temporal_checkpoints/*
