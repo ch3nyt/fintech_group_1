@@ -1,5 +1,6 @@
 import inspect
 from typing import Callable, List, Optional, Union
+import logging
 
 from packaging import version
 import PIL
@@ -16,6 +17,7 @@ from diffusers.utils import deprecate
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_inpaint import prepare_mask_and_masked_image
 
+logger = logging.getLogger(__name__)
 
 class MGDPipe(DiffusionPipeline):
     r"""

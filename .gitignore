@@ -334,7 +334,16 @@ images/
 
 # End of https://www.toptal.com/developers/gitignore/api/pycharm,visualstudiocode,opencv,python,git
 *.csv
+*.zip
 results/*
 HnM_sales/*
 __MACOSX/*
 .DS_Store
+/temporal_vitonhd_checkpoints/*
+/top5/*
+/output_pidinet_sketch/*
+/huggingface-cloth-segmentation/*
+/output/*
+/dataset_vitonhd_format/*
+/captions/*
+/wandb/*

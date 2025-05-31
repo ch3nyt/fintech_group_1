@@ -145,7 +145,7 @@ def main() -> None:
             guidance_scale_sketch=args.guidance_scale_sketch,
             sketch_cond_rate=args.sketch_cond_rate,
             start_cond_rate=args.start_cond_rate,
-            no_pose=False,
+            no_pose=True,
             disentagle=False,
             seed=args.seed,
         )
