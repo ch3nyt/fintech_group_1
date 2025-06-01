@@ -146,7 +146,12 @@ class TemporalVitonHDDataset(data.Dataset):
         return sorted_weekly_data
 
     def _create_temporal_samples(self) -> List[Dict]:
-        """Create training samples with temporal context"""
+        """Create training samples with temporal context
+
+        BUGFIX: Fixed the issue where all items from the same category were getting
+        the same "next week" text due to random.choice() being deterministic across
+        items in the same category. Now uses hash-based selection for diversity.
+        """
         samples = []
         week_keys = list(self.weekly_data.keys())
 
@@ -179,8 +184,11 @@ class TemporalVitonHDDataset(data.Dataset):
                     # Get next week's actual data for comparison (if available)
                     next_week_item = None
                     if next_week and category in self.weekly_data[next_week] and len(self.weekly_data[next_week][category]) > 0:
-                        # Sample a random item from next week's same category
-                        next_week_item = random.choice(self.weekly_data[next_week][category])
+                        # FIXED: Use deterministic selection based on target item to avoid same text for all items
+                        # This ensures each target item gets a consistent but different next week item
+                        next_week_items = self.weekly_data[next_week][category]
+                        item_hash = hash(target_item['product_id']) % len(next_week_items)
+                        next_week_item = next_week_items[item_hash]
 
                     if len(past_weeks_with_data) > 0:
                         samples.append({

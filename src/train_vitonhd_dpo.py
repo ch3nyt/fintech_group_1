@@ -624,7 +624,7 @@ def main():
 
                 # DPO loss computation (with probability) - only on first accumulation step
                 dpo_loss = torch.tensor(0.0).to(accelerator.device)
-                if (random.random() < args.dpo_frequency and global_step > 50 and
+                if (random.random() < args.dpo_frequency and global_step > 1500 and
                     last_dpo_step != global_step):  # Only once per global step
                     try:
                         last_dpo_step = global_step  # Mark this step as having DPO

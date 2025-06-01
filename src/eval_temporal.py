@@ -14,6 +14,10 @@ from datasets.temporal_vitonhd_dataset import TemporalVitonHDDataset
 from mgd_pipelines.mgd_pipe import MGDPipe
 from utils.set_seeds import set_seed
 from utils.image_from_pipe import generate_images_from_mgd_pipe
+from utils.garment_classifier import (
+    classify_garment,
+    ensure_garment_consistency
+)
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -137,17 +141,23 @@ class TemporalPredictor:
         with torch.inference_mode():
             for week_data in past_weeks_data:
                 past_conditioning = week_data['past_conditioning']
+                current_week_text = past_conditioning['combined_caption_text']
+
+                # Use garment classifier to determine category and ensure consistency
+                current_garment_category = classify_garment(current_week_text)
+                print(f"🔍 Current week garment category: {current_garment_category}")
 
                 # Determine style prompt (what text to use for generation)
                 if next_week_actual_text is not None and next_week_actual_text.strip():
-                    # Use actual next week's text description
-                    next_week_style = next_week_actual_text.strip()
-                    print(f"✅ Using actual next week text: '{next_week_style}'")
+                    # Ensure next week text belongs to same garment category as current week
+                    next_week_style = ensure_garment_consistency(current_week_text, next_week_actual_text.strip())
+                    print(f"✅ Original next week text: '{next_week_actual_text.strip()}'")
+                    print(f"🎯 Standardized next week text: '{next_week_style}'")
                 else:
                     # Generate evolved style based on past trends
                     base_style = past_conditioning['combined_caption_text']
 
-                    # Enhanced text evolution logic
+                    # Enhanced text evolution logic with category consistency
                     style_keywords = ["trending", "modern", "stylish", "contemporary", "fashionable"]
                     color_variations = ["refined", "elegant", "sophisticated", "updated", "enhanced"]
 
@@ -158,19 +168,40 @@ class TemporalPredictor:
                     # Add trending modifier
                     evolved_elements.append(f"trending {color_variations[hash(base_style) % len(color_variations)]}")
 
-                    # Preserve core garment type but evolve style
-                    if "top" in base_lower or "shirt" in base_lower or "blouse" in base_lower:
-                        evolved_elements.append("fashionable top")
-                    elif "dress" in base_lower:
-                        evolved_elements.append("stylish dress")
-                    elif "pants" in base_lower or "trousers" in base_lower:
-                        evolved_elements.append("modern pants")
-                    elif "shoe" in base_lower or "boot" in base_lower:
-                        evolved_elements.append("contemporary footwear")
-                    elif "underwear" in base_lower:
-                        evolved_elements.append("refined undergarment")
+                    # Preserve core garment type but evolve style - use classifier to ensure consistency
+                    if current_garment_category:
+                        if current_garment_category == 'top':
+                            evolved_elements.append("fashionable top")
+                        elif current_garment_category == 'dress':
+                            evolved_elements.append("stylish dress")
+                        elif current_garment_category == 'pants':
+                            evolved_elements.append("modern pants")
+                        elif current_garment_category == 'shoes':
+                            evolved_elements.append("contemporary shoes")
+                        elif current_garment_category == 'underwear':
+                            evolved_elements.append("refined underwear")
+                        elif current_garment_category == 'skirt':
+                            evolved_elements.append("elegant skirt")
+                        elif current_garment_category == 'shorts':
+                            evolved_elements.append("stylish shorts")
+                        elif current_garment_category == 'outerwear':
+                            evolved_elements.append("modern jacket")
+                        else:
+                            evolved_elements.append("updated garment")
                     else:
-                        evolved_elements.append("updated garment")
+                        # Fallback to original logic
+                        if "top" in base_lower or "shirt" in base_lower or "blouse" in base_lower:
+                            evolved_elements.append("fashionable top")
+                        elif "dress" in base_lower:
+                            evolved_elements.append("stylish dress")
+                        elif "pants" in base_lower or "trousers" in base_lower:
+                            evolved_elements.append("modern pants")
+                        elif "shoe" in base_lower or "boot" in base_lower:
+                            evolved_elements.append("contemporary footwear")
+                        elif "underwear" in base_lower:
+                            evolved_elements.append("refined undergarment")
+                        else:
+                            evolved_elements.append("updated garment")
 
                     # Add color/material evolution
                     if "black" in base_lower:
@@ -187,9 +218,9 @@ class TemporalPredictor:
                     print(f"🎯 Based on: '{base_style}'")
 
                 if next_week_actual_text is not None and next_week_actual_text.strip():
-                    print(f"📅 Next week's actual text: '{next_week_style}'")
+                    print(f"📅 Using next week text: '{next_week_style}'")
                 else:
-                    print(f"🔮 Evolved caption: '{next_week_style}'")
+                    print(f"🔮 Evolved text: '{next_week_style}'")
 
                 # Use current week's target sketch and segmentation for garment structure
                 with self.accelerator.autocast():
