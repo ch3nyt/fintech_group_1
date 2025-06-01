@@ -19,33 +19,6 @@ mkdir -p $OUTPUT_DIR
 LOG_FILE="$OUTPUT_DIR/$EXPERIMENT_NAME/training.log"
 mkdir -p "$OUTPUT_DIR/$EXPERIMENT_NAME"
 
-# Training parameters
-echo "Starting training with the following configuration:" | tee -a "$LOG_FILE"
-echo "Dataset: $DATASET_PATH" | tee -a "$LOG_FILE"
-echo "Output: $OUTPUT_DIR" | tee -a "$LOG_FILE"
-echo "Experiment: $EXPERIMENT_NAME" | tee -a "$LOG_FILE"
-echo "Log file: $LOG_FILE" | tee -a "$LOG_FILE"
-
-# Run training with ultra-memory-efficient settings
-echo "Starting training..." | tee -a "$LOG_FILE"
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/train_temporal.py \
-    --dataset_path $DATASET_PATH \
-    --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME \
-    --num_past_weeks 10 \
-    --temporal_weight_decay 0.8 \
-    --temporal_loss_weight 0.3 \
-    --learning_rate 1e-5 \
-    --max_train_steps 5000 \
-    --batch_size 1 \
-    --mixed_precision fp16 \
-    --gradient_accumulation_steps 16 \
-    --save_steps 500 \
-    --num_workers 1 \
-    --project_name "temporal-vitonhd" \
-    --seed 42 2>&1 | tee -a "$LOG_FILE"
-
-echo "Training completed!" | tee -a "$LOG_FILE"
-
 # Optional: Run evaluation on test set
 echo "Running evaluation on test set..." | tee -a "$LOG_FILE"
 python3 src/eval_temporal.py \

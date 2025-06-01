@@ -119,13 +119,7 @@ class TemporalPredictor:
         self.unet.to(self.device, dtype=weight_dtype)
 
     def predict_next_week(self, past_weeks_data, next_week_actual_text=None):
-        """
-        Predict garments for next week based on past weeks
-
-        Args:
-            past_weeks_data: List of past week data
-            next_week_actual_text: Actual text from next week's data
-        """
+        """Predict next week's garment using temporal context"""
 
         # Create pipeline
         pipe = MGDPipe(
@@ -141,70 +135,99 @@ class TemporalPredictor:
         predictions = []
 
         with torch.inference_mode():
-            for i, week_data in enumerate(past_weeks_data):
-                # Use temporal conditioning from past weeks
+            for week_data in past_weeks_data:
                 past_conditioning = week_data['past_conditioning']
 
-                # Use actual next week's text instead of evolved text
+                # Determine style prompt (what text to use for generation)
                 if next_week_actual_text is not None and next_week_actual_text.strip():
-                    next_week_style = next_week_actual_text
+                    # Use actual next week's text description
+                    next_week_style = next_week_actual_text.strip()
+                    print(f"✅ Using actual next week text: '{next_week_style}'")
                 else:
-                    # Fallback to evolved style if no actual next week text available
+                    # Generate evolved style based on past trends
                     base_style = past_conditioning['combined_caption_text']
 
-                    # Extract key style elements from past trends
-                    if "trending style:" in base_style:
-                        # Extract the current trending part
-                        trending_part = base_style.split("trending style:")[1].split(",")[0].strip()
-                        next_week_style = f"next week fashion trend: {trending_part}, modern updated styling"
+                    # Enhanced text evolution logic
+                    style_keywords = ["trending", "modern", "stylish", "contemporary", "fashionable"]
+                    color_variations = ["refined", "elegant", "sophisticated", "updated", "enhanced"]
+
+                    # Extract key elements from base style
+                    base_lower = base_style.lower()
+                    evolved_elements = []
+
+                    # Add trending modifier
+                    evolved_elements.append(f"trending {color_variations[hash(base_style) % len(color_variations)]}")
+
+                    # Preserve core garment type but evolve style
+                    if "top" in base_lower or "shirt" in base_lower or "blouse" in base_lower:
+                        evolved_elements.append("fashionable top")
+                    elif "dress" in base_lower:
+                        evolved_elements.append("stylish dress")
+                    elif "pants" in base_lower or "trousers" in base_lower:
+                        evolved_elements.append("modern pants")
+                    elif "shoe" in base_lower or "boot" in base_lower:
+                        evolved_elements.append("contemporary footwear")
+                    elif "underwear" in base_lower:
+                        evolved_elements.append("refined undergarment")
                     else:
-                        # Fallback if no trending info
-                        next_week_style = f"next week trending: {base_style}, contemporary fashion"
+                        evolved_elements.append("updated garment")
 
-                    # Limit length to avoid token issues
-                    if len(next_week_style) > 150:
-                        next_week_style = next_week_style[:150] + "..."
+                    # Add color/material evolution
+                    if "black" in base_lower:
+                        evolved_elements.append("with sophisticated black styling")
+                    elif "white" in base_lower:
+                        evolved_elements.append("with elegant white tones")
+                    elif "blue" in base_lower:
+                        evolved_elements.append("with modern blue accents")
+                    else:
+                        evolved_elements.append("with contemporary design elements")
 
-                # Display the caption being used
-                print(f"\n🎨 Generating image {i+1}/{len(past_weeks_data)}")
-                print(f"🏷️  Category: {week_data['category']}")
-                print(f"🆔 Product ID: {week_data['product_id']}")
-                print(f"⚖️  Temporal weights: {week_data['temporal_weights']}")
-                print(f"🎯 Using current week's target sketch as base structure")
-                print(f"📝 Base style: '{past_conditioning['combined_caption_text']}'")
+                    next_week_style = " ".join(evolved_elements)
+                    print(f"🔮 Generated evolved style: '{next_week_style}'")
+                    print(f"🎯 Based on: '{base_style}'")
+
                 if next_week_actual_text is not None and next_week_actual_text.strip():
                     print(f"📅 Next week's actual text: '{next_week_style}'")
                 else:
                     print(f"🔮 Evolved caption: '{next_week_style}'")
-                print("🔄 Generating...")
 
-                # Generate prediction using current week's target sketch and next week's actual text
-                generated_images = pipe(
-                    prompt=[next_week_style],
-                    image=week_data['image'].unsqueeze(0),
-                    mask_image=week_data['inpaint_mask'].unsqueeze(0),
-                    pose_map=week_data['pose_map'].unsqueeze(0),
-                    sketch=week_data['im_sketch'].unsqueeze(0),  # Use current week's target sketch
-                    height=512,
-                    width=384,
-                    guidance_scale=self.args.guidance_scale,
-                    num_inference_steps=self.args.num_inference_steps,
-                    num_images_per_prompt=1,
-                    no_pose=self.args.no_pose,
-                ).images
+                # Use current week's target sketch and segmentation for garment structure
+                with self.accelerator.autocast():
+                    print(f"🎯 Using current week's target sketch as base structure")
+                    print(f"📝 Base style: '{past_conditioning['combined_caption_text']}'")
+                    if next_week_actual_text is not None and next_week_actual_text.strip():
+                        print(f"📅 Next week's actual text: '{next_week_style}'")
+                    else:
+                        print(f"🔮 Evolved caption: '{next_week_style}'")
+                    print("🔄 Generating...")
 
-                print("✅ Generation completed!")
+                    # Generate prediction using current week's target sketch and next week's actual text
+                    generated_images = pipe(
+                        prompt=[next_week_style],
+                        image=week_data['image'].unsqueeze(0),
+                        mask_image=week_data['inpaint_mask'].unsqueeze(0),
+                        pose_map=week_data['pose_map'].unsqueeze(0),
+                        sketch=week_data['im_sketch'].unsqueeze(0),  # Use current week's target sketch
+                        height=512,
+                        width=384,
+                        guidance_scale=self.args.guidance_scale,
+                        num_inference_steps=self.args.num_inference_steps,
+                        num_images_per_prompt=1,
+                        no_pose=self.args.no_pose,
+                    ).images
 
-                predictions.append({
-                    'generated_image': generated_images[0],
-                    'style_prompt': next_week_style,
-                    'base_style': past_conditioning['combined_caption_text'],
-                    'base_image': week_data['im_name'],
-                    'temporal_weights': week_data['temporal_weights'],
-                    'category': week_data['category'],
-                    'product_id': week_data['product_id'],
-                    'is_actual_next_week_text': next_week_actual_text is not None and next_week_actual_text.strip() != ""
-                })
+                    print("✅ Generation completed!")
+
+                    predictions.append({
+                        'generated_image': generated_images[0],
+                        'style_prompt': next_week_style,
+                        'base_style': past_conditioning['combined_caption_text'],
+                        'base_image': week_data['im_name'],
+                        'temporal_weights': week_data['temporal_weights'],
+                        'category': week_data['category'],
+                        'product_id': week_data['product_id'],
+                        'is_actual_next_week_text': next_week_actual_text is not None and next_week_actual_text.strip() != ""
+                    })
 
         return predictions
 
@@ -274,8 +297,10 @@ class TemporalPredictor:
             # Show next week information
             if 'next_week_actual_text' in batch and batch['next_week_actual_text'][0] and batch['next_week_actual_text'][0].strip():
                 print(f"📅 Next week's actual text available: '{batch['next_week_actual_text'][0]}'")
+                using_actual_text = True
             else:
                 print(f"⚠️  No next week data available - will use evolved text as fallback")
+                using_actual_text = False
 
             # Predict next week garments
             predictions = self.predict_next_week([{
