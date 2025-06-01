@@ -350,3 +350,4 @@ __MACOSX/*
 /test_results/*
 /test_results_temporal/*
 /test_temporal_checkpoints/*
+/temporal_vitonhd_dpo_checkpoints/*
