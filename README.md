@@ -1,219 +1,254 @@
-# Multimodal Garment Designer (ICCV 2023)
-### Human-Centric Latent Diffusion Models for Fashion Image Editing
-[**Alberto Baldrati**](https://scholar.google.com/citations?hl=en&user=I1jaZecAAAAJ)**\***,
-[**Davide Morelli**](https://scholar.google.com/citations?user=UJ4D3rYAAAAJ&hl=en)**\***,
-[**Giuseppe Cartella**](https://scholar.google.com/citations?hl=en&user=0sJ4VCcAAAAJ),
-[**Marcella Cornia**](https://scholar.google.com/citations?hl=en&user=DzgmSJEAAAAJ),
-[**Marco Bertini**](https://scholar.google.com/citations?user=SBm9ZpYAAAAJ&hl=en),
-[**Rita Cucchiara**](https://scholar.google.com/citations?hl=en&user=OM3sZEoAAAAJ)
+# FashionDistill: Generative Design Synthesis via Bestseller Pattern Extraction from the H&M Dataset
 
-**\*** Equal contribution.
+## 📝 Overview
 
-[![arXiv](https://img.shields.io/badge/arXiv-Paper-<COLOR>.svg)](https://arxiv.org/abs/2304.02051)
-[![GitHub Stars](https://img.shields.io/github/stars/aimagelab/multimodal-garment-designer?style=social)](https://github.com/aimagelab/multimodal-garment-designer)
+Fashion design generation aims to assist designers by providing visual inspiration that reflects diverse trend elements under extremely short product cycles. However, existing models often suffer from limited diversity and rely heavily on supervised learning paradigms, which restrict their adaptability to fast-changing market dynamics.
 
-This is the **official repository** for the [**paper**](https://arxiv.org/abs/2304.02051) "*Multimodal Garment Designer: Human-Centric Latent Diffusion Models for Fashion Image Editing*".
+**FashionDistill** addresses these limitations through **Direct Preference Optimization (DPO)** fine-tuning of fashion generation models. Our framework offers a generalizable strategy that enables better alignment with real-world fashion preferences via multi-modal feedback (text-to-text, image-to-image, image-to-text evaluations).
 
-🔥🔥 **[21/03/2024] If you are interested in multimodal fashion image editing take a look at our most recent work [Multimodal-Conditioned Latent Diffusion Models for Fashion Image Editing](https://arxiv.org/abs/2403.14828). We introduce Ti-MGD a novel approach that also integrates fabric texture conditioning [![Repo](https://badgen.net/badge/icon/GitHub?icon=github&label)](https://github.com/aimagelab/Ti-MGD)**
+**Key Contributions:**
+- 🎯 **Temporal Trend Modeling**: Extract bestseller patterns from H&M dataset organized by weekly fashion trends
+- 🔄 **Direct Preference Optimization**: Fine-tune models using preference pairs based on CLIP-score evaluations
+- 🎨 **Multi-Modal Feedback**: Integrate text-to-text, image-to-image, and image-to-text evaluation mechanisms
+- 📊 **Real-World Validation**: Experiments on H&M transaction datasets demonstrate effectiveness in reflecting evolving market trends
 
-## Overview
+## 🚀 Quick Start
 
-<p align="center">
-    <img src="images/1.gif" style="max-width:500px">
-</p>
+### Prerequisites
+- **CUDA 12.1** (required), **>24GB VRAM** recommended
+- **Linux** (tested on Ubuntu)
 
->**Abstract**: <br>
-> Fashion illustration is used by designers to communicate their vision and to bring the design idea from conceptualization to realization, showing how clothes interact with the human body. In this context, computer vision can thus be used to improve the fashion design process. Differently from previous works that mainly focused on the virtual try-on of garments, we propose the task of multimodal-conditioned fashion image editing, guiding the generation of human-centric fashion images by following multimodal prompts, such as text, human body poses, and garment sketches. We tackle this problem by proposing a new architecture based on latent diffusion models, an approach that has not been used before in the fashion domain. Given the lack of existing datasets suitable for the task, we also extend two existing fashion datasets, namely Dress Code and VITON-HD, with multimodal annotations collected in a semi-automatic manner. Experimental results on these new datasets demonstrate the effectiveness of our proposal, both in terms of realism and coherence with the given multimodal inputs.
+### Installation
+```bash
+# 1. Create environment
+conda create -n MGD python=3.9 -y && conda activate MGD
+python -m pip install gdown && apt-get update && apt-get install -y unzip
 
-## Citation
-If you make use of our work, please cite our paper:
+# 2. Install PyTorch (CUDA 12.1)
+pip install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+
+# 3. Install dependencies
+python -m pip install -r requirements.txt
+```
+
+### Get Dataset
+```bash
+bash get_dataset.sh  # Downloads H&M bestseller dataset in VITON-HD format
+```
+
+### Training & Inference
+```bash
+# Basic temporal training
+chmod +x train_vitonhd_temporal.sh && ./train_vitonhd_temporal.sh
+
+# DPO-enhanced training
+chmod +x train_vitonhd_dpo.sh && ./train_vitonhd_dpo.sh
+
+# Inference
+chmod +x inference_vitonhd_dpo.sh && ./inference_vitonhd_dpo.sh
+```
+
+## 📂 Dataset Structure
+
+### H&M Integration
+We extract bestseller patterns from [H&M dataset](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations) weekly, converting to [VITON-HD format](https://github.com/shadow2496/VITON-HD).
+
+```
+dataset_vitonhd_format/
+├── captions.json
+├── train/val/test/
+│   ├── images/
+│   │   ├── top5acc/    # Accessories
+│   │   │   ├── 2018-week38/
+│   │   │   └── 2020-week7/
+│   │   ├── top5gfb/    # Full Body
+│   │   ├── top5glb/    # Lower Body
+│   │   ├── top5gub/    # Upper Body
+│   │   ├── top5shoe/   # Shoes
+│   │   └── top5underwear/
+│   ├── im_sketch/      # Edge representations
+│   └── im_seg/         # Segmentation masks
+```
+
+## ⚗️ Execution Guide
+
+### Training Commands
+
+<details>
+<summary><b>🔧 Advanced Training Configuration</b></summary>
+
+#### Temporal Training
+```bash
+python3 src/train_temporal.py \
+    --dataset_path /root/multimodal-garment-designer/dataset_vitonhd_format \
+    --output_dir ./temporal_vitonhd_checkpoints \
+    --categories top5gub top5glb top5acc \
+    --num_past_weeks 4 --temporal_weight_decay 0.8 --temporal_loss_weight 0.3 \
+    --learning_rate 1e-5 --max_train_steps 5000 --batch_size 2 \
+    --mixed_precision fp16 --save_steps 500
+```
+
+#### DPO Training
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/train_vitonhd_dpo.py \
+    --dataset_path /root/multimodal-garment-designer/dataset_vitonhd_format \
+    --output_dir ./temporal_vitonhd_dpo_checkpoints \
+    --num_past_weeks 8 --temporal_weight_decay 0.8 --temporal_loss_weight 0.3 \
+    --num_candidates 20 --dpo_beta 0.1 --dpo_weight 0.5 \
+    --clip_i_weight 0.6 --clip_t_weight 0.4 --dpo_frequency 0.01 \
+    --learning_rate 1e-5 --max_train_steps 5000 --batch_size 1 \
+    --mixed_precision fp16 --gradient_accumulation_steps 16
+```
+
+#### Memory-Optimized (<24GB VRAM)
+```bash
+python3 src/train_vitonhd_dpo.py \
+    --batch_size 1 --gradient_accumulation_steps 32 --num_candidates 10 \
+    --mixed_precision fp16 --num_workers 1 --max_train_steps 3000
+```
+
+#### Multi-GPU
+```bash
+accelerate config  # Run once
+accelerate launch src/train_vitonhd_dpo.py [args...]
+```
+</details>
+
+### Inference Commands
+
+<details>
+<summary><b>🔮 Advanced Inference Configuration</b></summary>
+
+#### Temporal Model Evaluation
+```bash
+python3 src/eval_temporal.py \
+    --dataset_path /root/multimodal-garment-designer/dataset_vitonhd_format \
+    --checkpoint_path ./temporal_vitonhd_checkpoints/final_model/unet.pth \
+    --output_dir ./temporal_results \
+    --guidance_scale 7.5 --num_inference_steps 50 --batch_size 1
+```
+
+#### DPO Model Evaluation
+```bash
+python3 src/eval_temporal.py \
+    --checkpoint_path ./temporal_vitonhd_dpo_checkpoints/final_model/unet.pth \
+    --output_dir ./dpo_results --mixed_precision fp16
+```
+
+#### Category-Specific & High-Quality Inference
+```bash
+# Specific categories
+python3 src/eval_temporal.py --categories top5gub top5glb [other-args...]
+
+# High quality (slower)
+python3 src/eval_temporal.py --guidance_scale 10.0 --num_inference_steps 100 [other-args...]
+
+# Batch process all categories
+for category in top5acc top5gfb top5glb top5gub top5shoe top5underwear; do
+    python3 src/eval_temporal.py --categories $category --output_dir ./batch_results/$category [other-args...]
+done
+```
+</details>
+
+### Key Parameters
+
+| **Category** | **Parameter** | **Description** | **Default** |
+|--------------|---------------|-----------------|-------------|
+| **Temporal** | `--num_past_weeks` | Past weeks for trend analysis | 4 (temporal), 8 (DPO) |
+| | `--temporal_weight_decay` | Exponential decay for older weeks | 0.8 |
+| **DPO** | `--num_candidates` | Candidates per sample | 20 |
+| | `--dpo_weight` | DPO loss weight | 0.5 |
+| | `--clip_i_weight / --clip_t_weight` | Image/Text similarity weights | 0.6 / 0.4 |
+| **Performance** | `--batch_size` | Training batch size | 1 (DPO), 2 (temporal) |
+| | `--mixed_precision` | Memory efficiency | fp16 |
+| **Inference** | `--guidance_scale` | Generation guidance | 7.5 |
+| | `--num_inference_steps` | Denoising steps | 50 |
+
+## 🧠 Technical Architecture
+
+### Model Components
+**Backbone**: `runwayml/stable-diffusion-inpainting` + Multimodal Garment Designer UNet
+
+```python
+# 13-channel conditioning (9 without pose)
+conditioning = torch.cat([
+    noisy_latents,        # Denoising target (4)
+    masks_resized,        # Inpainting mask (1)
+    masked_image_latents, # Masked input (4)
+    pose_maps_resized,    # Human pose (3) - optional
+    sketches_resized      # Garment sketch (1)
+], dim=1)
+```
+
+### Loss Functions
+```python
+total_loss = diffusion_loss + α×temporal_loss + β×dpo_loss
+```
+
+**1. Diffusion Loss**: Standard denoising with SNR weighting
+```python
+snr_weights = compute_snr_weights(timesteps, noise_scheduler, gamma=5.0)
+main_loss = (F.mse_loss(model_pred, target, reduction="none") * snr_weights).mean()
+```
+
+**2. Temporal Consistency Loss**: Smooth transitions between weeks
+```python
+# Weighted aggregation: recent weeks have higher influence (0.8^n decay)
+weighted_past_features = sum(weight * past_sketch for weight, past_sketch in zip(weights, past_sketches))
+temporal_loss = F.mse_loss(current_features, weighted_past_features) * temporal_weight
+```
+
+**3. DPO Loss**: Preference optimization via CLIP scoring
+```python
+# 4-step process: Generate → Score → Pair → Optimize
+candidates = generate_candidates(mgd_pipe, batch, num_candidates=20)
+scores = score_candidates(candidates, clip_scorer, clip_i_weight=0.6, clip_t_weight=0.4)
+dpo_loss = compute_dpo_loss(model_preds, ref_preds, beta=0.1)
+```
+
+**DPO Training Strategy**: Applied to 1% of steps after warmup (step >1500), memory-efficient candidate generation without gradients.
+
+### Temporal Inference
+```python
+# Style evolution for future prediction
+if next_week_actual_text:
+    style_prompt = ensure_garment_consistency(current_style, next_week_text)
+else:
+    garment_type = classify_garment(current_style)
+    style_prompt = f"trending {garment_type} with contemporary design"
+```
+
+## 📊 Output Structure
+```
+temporal_vitonhd_dpo_checkpoints/
+└── temporal_vitonhd_dpo_YYYYMMDD_HHMMSS/
+    ├── checkpoint-1000/unet.pth
+    ├── final_model/unet.pth
+    └── dpo_test_results/
+        ├── predictions/[categories]/
+        ├── captions_used.txt
+        └── category_statistics.json
+```
+
+## 🔍 Troubleshooting
+
+| **Issue** | **Solution** |
+|-----------|--------------|
+| CUDA OOM | `--batch_size 1 --gradient_accumulation_steps 32 --num_candidates 10` |
+| Slow Training | `--num_workers 8 --num_candidates 15` |
+| Missing Sketches | Dataset generates dummy data (check logs for warnings) |
+
+## 📚 Citation & License
 
 ```bibtex
-@inproceedings{baldrati2023multimodal,
-  title={Multimodal Garment Designer: Human-Centric Latent Diffusion Models for Fashion Image Editing},
-  author={Baldrati, Alberto and Morelli, Davide and Cartella, Giuseppe and Cornia, Marcella and Bertini, Marco and Cucchiara, Rita},
-  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision},
-  year={2023}
+@article{fashiondistill2024,
+  title={FashionDistill: Generative Design Synthesis via Bestseller Pattern Extraction from the H&M Dataset},
+  author={[Authors]},
+  journal={[Journal]},
+  year={2024}
 }
 ```
 
-## Getting Started
+**Acknowledgements**: Built upon Multimodal Garment Designer (ICCV 2023), Direct Preference Optimization, H&M Fashion Dataset, and VITON-HD.
 
-We recommend using the [**Anaconda**](https://www.anaconda.com/) package manager to avoid dependency/reproducibility
-problems.
-For Linux systems, you can find a conda installation
-guide [here](https://docs.conda.io/projects/conda/en/latest/user-guide/install/linux.html).
-
-### Installation
-
-1. Clone the repository
-
-```sh
-git clone https://github.com/aimagelab/multimodal-garment-designer
-```
-
-2. Install Python dependencies
-
-```sh
-conda env create -n mgd -f environment.yml
-conda activate mgd
-```
-
-Alternatively, you can create a new conda environment and install the required packages manually:
-
-```sh
-conda create -n mgd -y python=3.9
-conda activate mgd
-pip install torch==1.12.1 torchmetrics==0.11.0 opencv-python==4.7.0.68 diffusers==0.12.0 transformers==4.25.1 accelerate==0.15.0 clean-fid==0.1.35 torchmetrics[image]==0.11.0
-```
-
-## Inference
-
-To run the inference please use the following:
-
-```
-python src/eval.py --dataset_path <path> --batch_size <int> --mixed_precision fp16 --output_dir <path> --save_name <string> --num_workers_test <int> --sketch_cond_rate 0.2 --dataset <dresscode|vitonhd> --start_cond_rate 0.0 --test_order <paired|unpaired>
-```
-
-- ```dataset_path``` is the path to the dataset (change accordingly to the dataset parameter)
-- ```dataset``` dataset name to be used
-- ```output_dir``` path to the output directory
-- ```save_name``` name of the output dir subfolder where the generated images are saved
-- ```start_cond_rate``` rate {0.0,1.0} of denoising steps that will be used as offset to start sketch conditioning
-- ```sketch_cond_rate``` rate {0.0,1.0} of denoising steps in which sketch cond is applied
-- ```test_order``` test setting (paired | unpaired)
-
-Note that we provide a few sample images to test MGD simply by cloning this repo (*i.e.*, assets/data). To execute the code set 
-- Dress Code Multimodal dataset
-    - ```dataset_path``` to ```../assets/data/dresscode```
-    - ```dataset``` to ```dresscode```
-- Viton-HD Multimodal dataset
-    - ```dataset_path``` to ```../assets/data/vitonhd```
-    - ```dataset``` to ```vitonhd```
-
-It is possible to run the inference on the whole Dress Code Multimodal or Viton-HD Multimodal dataset simply changing the ```dataset_path``` and ```dataset``` according with the downloaded and prepared datasets (see sections below).
-
-
-## Pre-trained models
-The model and checkpoints are available via torch.hub.
-
-Load the MGD denoising UNet model using the following code:
-
-```
-import torch
-unet = torch.hub.load(
-    dataset=<dataset>, 
-    repo_or_dir='aimagelab/multimodal-garment-designer', 
-    source='github', 
-    model='mgd', 
-    pretrained=True
-    )
-```
-
-- ```dataset``` dataset name (dresscode | vitonhd)
-
-Use the denoising network with our custom diffusers pipeline as follow:
-
-```
-from src.mgd_pipelines.mgd_pipe import MGDPipe
-from diffusers import AutoencoderKL, DDIMScheduler
-from transformers import CLIPTextModel, CLIPTokenizer
-
-pretrained_model_name_or_path = "runwayml/stable-diffusion-inpainting"
-
-text_encoder = CLIPTextModel.from_pretrained(
-    pretrained_model_name_or_path, 
-    subfolder="text_encoder"
-    )
-
-vae = AutoencoderKL.from_pretrained(
-    pretrained_model_name_or_path, 
-    subfolder="vae"
-    )
-
-tokenizer = CLIPTokenizer.from_pretrained(
-    pretrained_model_name_or_path,
-    subfolder="tokenizer",
-    )
-
-val_scheduler = DDIMScheduler.from_pretrained(
-    pretrained_model_name_or_path,
-    subfolder="scheduler"
-    )
-val_scheduler.set_timesteps(50)
-
-mgd_pipe = MGDPipe(
-    text_encoder=text_encoder,
-    vae=vae,
-    unet=unet,
-    tokenizer=tokenizer,
-    scheduler=val_scheduler,
-    )
-```
-
-For an extensive usage case see the file ```eval.py``` in the main repo.
-
-## Datasets
-We do not hold rights on the original Dress Code and Viton-HD datasets. Please refer to the original papers for more information.
-
-Start by downloading the original datasets from the following links:
-- Viton-HD **[[link](https://github.com/shadow2496/VITON-HD)]**
-- Dress Code **[[link](https://github.com/aimagelab/dress-code)]**
-
-
-Download the Dress Code Multimodal and Viton-HD Multimodal additional data annotations from here.
-
-- Dress Code Multimodal **[[link](https://drive.google.com/file/d/1dwnAi1CNmmF_YdbIDfm8078dGh4ci47L/view?usp=sharing)]**
-- Viton-HD Multimodal **[[link](https://drive.google.com/file/d/1Z2b9YkyBPA_9ZDC54Y5muW9Q8yfAqWSH/view?usp=sharing)]**
-
-### Dress Code Multimodal Data Preparation
-Once data is downloaded prepare the dataset folder as follows:
-
-<pre>
-Dress Code
-| <b>fine_captions.json</b>
-| <b>coarse_captions.json</b>
-| test_pairs_paired.txt
-| test_pairs_unpaired.txt
-| train_pairs.txt
-| <b>test_stitch_map</b>
-|---- [category]
-|-------- images
-|-------- keypoints
-|-------- skeletons
-|-------- dense
-|-------- <b>im_sketch</b>
-|-------- <b>im_sketch_unpaired</b>
-...
-</pre>
-
-### Viton-HD Multimodal Data Preparation
-Once data is downloaded prepare the dataset folder as follows:
-
-<pre>
-Viton-HD
-| <b>captions.json</b>
-|---- train
-|-------- image
-|-------- cloth
-|-------- image-parse-v3
-|-------- openpose_json
-|-------- <b>im_sketch</b>
-|-------- <b>im_sketch_unpaired</b>
-...
-|---- test
-...
-|-------- <b>im_sketch</b>
-|-------- <b>im_sketch_unpaired</b>
-...
-</pre>
-
-
-## TODO
-- [ ] training code
-
-## Acknowledgements
-This work has partially been supported by the PNRR project “Future Artificial Intelligence Research (FAIR)”, by the PRIN project “CREATIVE: CRoss-modal understanding and gEnerATIon of Visual and tExtual content” (CUP B87G22000460001), both co-funded by the Italian Ministry of University and Research, and by the European Commission under European Horizon 2020 Programme, grant number 101004545 - ReInHerit.
-
-## LICENSE
-<a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc/4.0/88x31.png" /></a><br />All material is available under [Creative Commons BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). You can **use, redistribute, and adapt** the material for **non-commercial purposes**, as long as you give appropriate credit by **citing our paper** and **indicate any changes** you've made.
+**License**: [Creative Commons BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) - Non-commercial use with attribution.
