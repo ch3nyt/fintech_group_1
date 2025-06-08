@@ -41,7 +41,12 @@ bash get_ref_img.sh  # Downloads reference images for Clip Score calculation
 bash get_inference_result_example.sh  # Downloads inference results for metrics calculation
 ```
 
-### Training
+### Stage 1: vicuna caption generation
+please execute the provided `./VicunaTest_Stage_1.ipynb` to generate captions for the dataset.
+We've combined the generation result into our provided dataset. Then, you can directly use the dataset for stage 2 training.
+
+
+### Stage 2 DPO Training
 ```bash
 # DPO training
 chmod +x train_vitonhd_dpo.sh && ./train_vitonhd_dpo.sh
