@@ -42,7 +42,7 @@ bash get_inference_result_example.sh  # Downloads inference results for metrics 
 ```
 
 ### Stage 1: vicuna caption generation
-please execute the provided `./VicunaTest_Stage_1.ipynb` to generate captions for the dataset.
+Please execute the provided `./VicunaTest_Stage_1.ipynb` to generate pseudo captions for the dataset.
 We've combined the generation result into our provided dataset. Then, you can directly use the dataset for stage 2 training.
 
 
