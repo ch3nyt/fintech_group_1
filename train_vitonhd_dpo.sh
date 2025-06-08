@@ -72,7 +72,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/train_vitonhd_dpo
     --dpo_frequency 0.05 \
     --num_inference_steps 10 \
     --learning_rate 5e-6 \
-    --max_train_steps 500 \
+    --max_train_steps 5000 \
     --batch_size 1 \
     --mixed_precision fp16 \
     --gradient_accumulation_steps 16 \
