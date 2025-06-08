@@ -17,6 +17,7 @@ Fashion design generation aims to assist designers by providing visual inspirati
 ### Prerequisites
 - **CUDA 12.1** (required), **>24GB VRAM** recommended
 - **Linux** (tested on Ubuntu)
+- **Conda Environment** (required)
 
 ### Installation
 ```bash
