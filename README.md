@@ -40,24 +40,91 @@ bash get_ref_img.sh  # Downloads reference images for Clip Score calculation
 bash get_inference_result_example.sh  # Downloads inference results for metrics calculation
 ```
 
-### Training & Inference
+### Training
 ```bash
 # DPO training
 chmod +x train_vitonhd_dpo.sh && ./train_vitonhd_dpo.sh
+```
+or write your own training command.
+```bash
+python3 src/train_vitonhd_dpo.py \
+    --dataset_path $DATASET_PATH \
+    --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME \
+    $([ ! -z "$RESUME_CHECKPOINT" ] && echo "--resume_from_checkpoint $RESUME_CHECKPOINT") \
+    --num_past_weeks 8 \
+    --temporal_weight_decay 0.8 \
+    --temporal_loss_weight 0.3 \
+    --num_candidates 2 \
+    --dpo_beta 0.1 \
+    --dpo_weight 0.5 \
+    --clip_i_weight 0.6 \
+    --clip_t_weight 0.4 \
+    --dpo_frequency 0.05 \
+    --num_inference_steps 10 \
+    --learning_rate 5e-6 \
+    --max_train_steps 5000 \
+    --batch_size 1 \
+    --mixed_precision fp16 \
+    --gradient_accumulation_steps 16 \
+    --save_steps 500 \
+    --num_workers 1 \
+    --project_name "temporal-vitonhd-dpo-resumed" \
+    --seed 42 \
+    --use_wandb 2>&1 | tee -a "$LOG_FILE"
+```
 
-# Inference
+
+### Inference
+```bash
 chmod +x inference_vitonhd_dpo.sh && ./inference_vitonhd_dpo.sh
+```
+or write your own inference command.
+```bash
+python3 src/eval_temporal.py \
+    --dataset_path $DATASET_PATH \
+    --checkpoint_path $CHECKPOINT_PATH \
+    --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME \
+    --num_past_weeks 8 \
+    --temporal_weight_decay 0.8 \
+    --batch_size 1 \
+    --num_workers_test 1 \
+    --guidance_scale 5.0 \
+    --num_inference_steps 50 \
+    --mixed_precision fp16 \
+    --seed 42 \
+    --no_pose True 2>&1 | tee -a "$LOG_FILE"
 ```
 
 ### Calculate CLIP Score
 ```bash
 chmod +x evaluate_clip_scores.sh && ./evaluate_clip_scores.sh
 ```
+or write your own inference command.
+```bash
+python3 evaluate_clip_scores.py \
+    --input_dir "$INPUT_DIR" \
+    --reference_dir "$REFERENCE_DIR" \
+    --captions_file "$CAPTIONS_FILE" \
+    --output_dir "$OUTPUT_DIR" \
+    --clip_i_weight 0.6 \
+    --clip_t_weight 0.4 \
+    --batch_size 8 \
+    --device auto \
+    --create_visualizations 2>&1 | tee -a "$LOG_FILE"
+
+```
 
 ## 📂 Dataset Structure
 
 ### H&M Integration
 We extract bestseller patterns from [H&M dataset](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations) weekly, converting to [VITON-HD format](https://github.com/shadow2496/VITON-HD).
+
+The orignal H&M dataset link: https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations
+
+The VITON-HD format link: https://github.com/shadow2496/VITON-HD
+
+Our preprocessed dataset can be download from this link:
+https://drive.google.com/file/d/1C2W0TaHGRpJkrVANWkLkpxDBdng9tqeh/view
 
 ```
 dataset_vitonhd_format/

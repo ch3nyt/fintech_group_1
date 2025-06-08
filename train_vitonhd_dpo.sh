@@ -72,11 +72,11 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/train_vitonhd_dpo.p
     --dpo_frequency 0.05 \
     --num_inference_steps 10 \
     --learning_rate 5e-6 \
-    --max_train_steps 200 \
+    --max_train_steps 500 \
     --batch_size 1 \
     --mixed_precision fp16 \
     --gradient_accumulation_steps 16 \
-    --save_steps 100 \
+    --save_steps 500 \
     --num_workers 1 \
     --project_name "temporal-vitonhd-dpo-resumed" \
     --seed 42 \
