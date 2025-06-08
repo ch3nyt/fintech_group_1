@@ -30,24 +30,28 @@ echo "Log file: $LOG_FILE" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 echo "DPO Inference Parameters:" | tee -a "$LOG_FILE"
 echo "- Number of inference steps: 50" | tee -a "$LOG_FILE"
-echo "- Guidance scale: 7.5" | tee -a "$LOG_FILE"
+echo "- Guidance scale: 15.0" | tee -a "$LOG_FILE"
 echo "- Mixed precision: fp16" | tee -a "$LOG_FILE"
 echo "- Batch size: 1" | tee -a "$LOG_FILE"
+echo "- Random seed: 42" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
-# Find the latest checkpoint
-LATEST_CHECKPOINT=$(find ./temporal_vitonhd_dpo_checkpoints -name "checkpoint-*" -type d | sort -V | tail -1)
+# Use the specific final checkpoint
+CHECKPOINT_PATH="./ckpt/unet.pth"
+echo "Using specific checkpoint: $CHECKPOINT_PATH" | tee -a "$LOG_FILE"
 
-if [ -z "$LATEST_CHECKPOINT" ]; then
-    echo "No checkpoint found, using final model..." | tee -a "$LOG_FILE"
-    CHECKPOINT_PATH="./temporal_vitonhd_dpo_checkpoints/final_model/unet.pth"
-else
-    echo "Using checkpoint: $LATEST_CHECKPOINT" | tee -a "$LOG_FILE"
-    CHECKPOINT_PATH="$LATEST_CHECKPOINT/unet.pth"
+# Verify checkpoint exists
+if [ ! -f "$CHECKPOINT_PATH" ]; then
+    echo "❌ Checkpoint not found at: $CHECKPOINT_PATH" | tee -a "$LOG_FILE"
+    echo "Please verify the checkpoint path exists." | tee -a "$LOG_FILE"
+    exit 1
 fi
 
 # Run DPO inference
 echo "Starting DPO inference..." | tee -a "$LOG_FILE"
+
+# Option 1: Use evolved/generated captions (default)
+echo "Using evolved caption generation..." | tee -a "$LOG_FILE"
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/eval_temporal.py \
     --dataset_path $DATASET_PATH \
     --checkpoint_path $CHECKPOINT_PATH \
@@ -56,10 +60,27 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/eval_temporal.py \
     --temporal_weight_decay 0.8 \
     --batch_size 1 \
     --num_workers_test 1 \
-    --guidance_scale 7.5 \
+    --guidance_scale 5.0 \
     --num_inference_steps 50 \
     --mixed_precision fp16 \
+    --seed 42 \
     --no_pose True 2>&1 | tee -a "$LOG_FILE"
+
+# Option 2: Use original base captions (uncomment to use)
+# echo "Using original base captions..." | tee -a "$LOG_FILE"
+# PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/eval_temporal.py \
+#     --dataset_path $DATASET_PATH \
+#     --checkpoint_path $CHECKPOINT_PATH \
+#     --output_dir $OUTPUT_DIR/${EXPERIMENT_NAME}_base_captions \
+#     --num_past_weeks 8 \
+#     --temporal_weight_decay 0.8 \
+#     --batch_size 1 \
+#     --num_workers_test 1 \
+#     --guidance_scale 7.5 \
+#     --num_inference_steps 50 \
+#     --mixed_precision fp16 \
+#     --no_pose True \
+#     --use_base_caption 2>&1 | tee -a "$LOG_FILE"
 
 echo "DPO Inference completed!" | tee -a "$LOG_FILE"
 

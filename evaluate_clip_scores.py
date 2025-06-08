@@ -17,6 +17,7 @@ from transformers import CLIPModel, CLIPProcessor
 import torchvision.transforms as transforms
 from typing import List, Dict, Tuple, Optional
 import csv
+import re
 
 
 class CLIPEvaluator:
@@ -101,6 +102,28 @@ def get_fashion_text_prompts() -> List[str]:
     ]
 
 
+def extract_caption_from_file(captions_file: str, image_name: str) -> str:
+    """Extract the Final Generation Prompt from captions file for a specific image"""
+    try:
+        with open(captions_file, 'r') as f:
+            content = f.read()
+
+        # Look for the image block
+        pattern = f"Image: {image_name}\\.jpg.*?(?=Image: |$)"
+        match = re.search(pattern, content, re.DOTALL)
+
+        if match:
+            block = match.group(0)
+            # Extract Final Generation Prompt
+            prompt_match = re.search(r"Final Generation Prompt: (.*?)(?=\n[A-Z]|$)", block, re.DOTALL)
+            if prompt_match:
+                return prompt_match.group(1).strip()
+        return None
+    except Exception as e:
+        print(f"Error extracting caption for {image_name}: {e}")
+        return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate CLIP-I and CLIP-T scores for images")
 
@@ -110,16 +133,14 @@ def parse_args():
                        help="Reference directory for CLIP-I comparison (optional)")
     parser.add_argument("--output_dir", type=str, default="./clip_evaluation_results",
                        help="Output directory for results")
-    parser.add_argument("--text_prompts", type=str, nargs='+', default=None,
-                       help="Custom text prompts for CLIP-T evaluation")
+    parser.add_argument("--captions_file", type=str, required=True,
+                       help="Path to the captions file containing Final Generation Prompts")
     parser.add_argument("--clip_i_weight", type=float, default=0.6,
                        help="Weight for CLIP-I score in combined score")
     parser.add_argument("--clip_t_weight", type=float, default=0.4,
                        help="Weight for CLIP-T score in combined score")
     parser.add_argument("--batch_size", type=int, default=8,
                        help="Batch size for processing (to manage memory)")
-    parser.add_argument("--save_individual_scores", action="store_true",
-                       help="Save individual scores for each image")
     parser.add_argument("--create_visualizations", action="store_true",
                        help="Create visualization plots")
     parser.add_argument("--device", type=str, default="auto",
@@ -130,7 +151,6 @@ def parse_args():
 
 def evaluate_directory(args):
     """Main evaluation function"""
-
     # Setup device
     if args.device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -170,14 +190,6 @@ def evaluate_directory(args):
             if ref_img:
                 reference_images.append(ref_img)
 
-    # Setup text prompts for CLIP-T
-    if args.text_prompts:
-        text_prompts = args.text_prompts
-    else:
-        text_prompts = get_fashion_text_prompts()
-
-    print(f"📝 Using {len(text_prompts)} text prompts for CLIP-T evaluation")
-
     # Storage for results
     results = {
         'individual_scores': [],
@@ -197,6 +209,16 @@ def evaluate_directory(args):
                 results['failed_images'].append(str(img_file))
                 continue
 
+            # Get image name without extension
+            image_name = img_file.stem
+
+            # Extract caption from captions file
+            caption = extract_caption_from_file(args.captions_file, image_name)
+            if caption is None:
+                print(f"⚠️ No caption found for {image_name}, skipping...")
+                results['failed_images'].append(str(img_file))
+                continue
+
             # Calculate CLIP-I scores (if reference images available)
             clip_i_score = 0.0
             if reference_images:
@@ -206,12 +228,8 @@ def evaluate_directory(args):
                     clip_i_scores.append(score)
                 clip_i_score = np.mean(clip_i_scores)  # Average across all references
 
-            # Calculate CLIP-T scores
-            clip_t_scores = []
-            for prompt in text_prompts:
-                score = evaluator.compute_clip_t_score(img, prompt)
-                clip_t_scores.append(score)
-            clip_t_score = np.mean(clip_t_scores)  # Average across all prompts
+            # Calculate CLIP-T score using the extracted caption
+            clip_t_score = evaluator.compute_clip_t_score(img, caption)
 
             # Calculate combined score
             if reference_images:
@@ -222,6 +240,7 @@ def evaluate_directory(args):
             # Store results
             individual_result = {
                 'image_path': str(img_file.relative_to(input_dir)),
+                'caption': caption,
                 'clip_i_score': clip_i_score,
                 'clip_t_score': clip_t_score,
                 'combined_score': combined_score,
@@ -254,7 +273,6 @@ def evaluate_directory(args):
         'evaluation_config': {
             'clip_i_weight': args.clip_i_weight,
             'clip_t_weight': args.clip_t_weight,
-            'text_prompts_used': text_prompts,
             'reference_images_count': len(reference_images),
             'device_used': device
         }
@@ -293,24 +311,23 @@ def evaluate_directory(args):
     with open(output_dir / "summary.json", 'w') as f:
         json.dump(summary, f, indent=2)
 
-    # Save individual scores (if requested)
-    if args.save_individual_scores:
-        with open(output_dir / "individual_scores.json", 'w') as f:
-            json.dump(results['individual_scores'], f, indent=2)
+    # Save individual scores
+    with open(output_dir / "individual_scores.json", 'w') as f:
+        json.dump(results['individual_scores'], f, indent=2)
 
-        # Also save as CSV for easy analysis
-        with open(output_dir / "scores.csv", 'w', newline='') as f:
-            writer = csv.writer(f)
-            header = ['image_path', 'clip_t_score', 'combined_score']
+    # Save as CSV for easy analysis
+    with open(output_dir / "scores.csv", 'w', newline='') as f:
+        writer = csv.writer(f)
+        header = ['image_path', 'caption', 'clip_t_score', 'combined_score']
+        if reference_images:
+            header.insert(-1, 'clip_i_score')
+        writer.writerow(header)
+
+        for item in results['individual_scores']:
+            row = [item['image_path'], item['caption'], item['clip_t_score'], item['combined_score']]
             if reference_images:
-                header.insert(-1, 'clip_i_score')
-            writer.writerow(header)
-
-            for item in results['individual_scores']:
-                row = [item['image_path'], item['clip_t_score'], item['combined_score']]
-                if reference_images:
-                    row.insert(-1, item['clip_i_score'])
-                writer.writerow(row)
+                row.insert(-1, item['clip_i_score'])
+            writer.writerow(row)
 
     # Create visualizations
     if args.create_visualizations:
@@ -357,10 +374,12 @@ def evaluate_directory(args):
         performers_text = "Top 5 Performers:\n"
         for i, item in enumerate(top_5, 1):
             performers_text += f"{i}. {Path(item['image_path']).name} ({item['combined_score']:.3f})\n"
+            performers_text += f"   Caption: {item['caption'][:50]}...\n"
 
         performers_text += "\nBottom 5 Performers:\n"
         for i, item in enumerate(bottom_5, 1):
             performers_text += f"{i}. {Path(item['image_path']).name} ({item['combined_score']:.3f})\n"
+            performers_text += f"   Caption: {item['caption'][:50]}...\n"
 
         axes[1, 1].text(0.05, 0.95, performers_text, transform=axes[1, 1].transAxes,
                        verticalalignment='top', fontfamily='monospace', fontsize=8)
@@ -395,3 +414,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

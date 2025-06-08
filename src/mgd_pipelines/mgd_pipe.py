@@ -518,7 +518,7 @@ class MGDPipe(DiffusionPipeline):
         )
 
         # 4. Preprocess mask, image and posemap
-        mask, masked_image = prepare_mask_and_masked_image(image, mask_image)
+        mask, masked_image = prepare_mask_and_masked_image(image, mask_image, height, width)
         pose_map = torch.nn.functional.interpolate(
             pose_map, size=(pose_map.shape[2] // 8, pose_map.shape[3] // 8), mode="bilinear"
         )

@@ -353,3 +353,13 @@ __MACOSX/*
 /temporal_vitonhd_dpo_checkpoints/*
 /temporal_vitonhd_dpo_inference/*
 /test_dpo_quick/*
+/temporal_vitonhd_dpo_multi_20250602_180858_seed4261_guidance8.0/*
+/inference_result_example/*
+/metrics_evaluation_results/*
+/Fashion_Distill_ckpt_with_dpo/*
+/enhanced_temporal_inference/*
+/Fashion_Distill_Exhibition/*
+/ref_img/*
+/__MACOSX/*
+/ckpt/*
+/ref_image/*

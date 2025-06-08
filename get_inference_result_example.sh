@@ -1,0 +1,3 @@
+gdown 1S93izwGFbZVcOhD9st4VCbvSfE0NHuk0 -O inference_result.zip
+unzip inference_result.zip
+rm inference_result.zip

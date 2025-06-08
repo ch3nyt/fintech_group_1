@@ -1,0 +1,3 @@
+gdown 12ky0tE60Sobed5Zsd7XNmQuOMohdK3X6 -O Fashion_Distiller_ckpt.zip
+unzip Fashion_Distiller_ckpt.zip
+rm Fashion_Distiller_ckpt.zip

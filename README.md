@@ -29,23 +29,29 @@ pip install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 --index-url https
 
 # 3. Install dependencies
 python -m pip install -r requirements.txt
+bash apt_get_requirements.sh
 ```
 
-### Get Dataset
+### Get Dataset and Checkpoint
 ```bash
 bash get_dataset.sh  # Downloads H&M bestseller dataset in VITON-HD format
+bash get_ckpt.sh  # Downloads FashionDistill checkpoint
+bash get_ref_img.sh  # Downloads reference images for Clip Score calculation
+bash get_inference_result_example.sh  # Downloads inference results for metrics calculation
 ```
 
 ### Training & Inference
 ```bash
-# Basic temporal training
-chmod +x train_vitonhd_temporal.sh && ./train_vitonhd_temporal.sh
-
-# DPO-enhanced training
+# DPO training
 chmod +x train_vitonhd_dpo.sh && ./train_vitonhd_dpo.sh
 
 # Inference
 chmod +x inference_vitonhd_dpo.sh && ./inference_vitonhd_dpo.sh
+```
+
+### Calculate CLIP Score
+```bash
+chmod +x evaluate_clip_scores.sh && ./evaluate_clip_scores.sh
 ```
 
 ## 📂 Dataset Structure
@@ -150,6 +156,8 @@ done
 ```
 </details>
 
+
+
 ### Key Parameters
 
 | **Category** | **Parameter** | **Description** | **Default** |
@@ -163,6 +171,9 @@ done
 | | `--mixed_precision` | Memory efficiency | fp16 |
 | **Inference** | `--guidance_scale` | Generation guidance | 7.5 |
 | | `--num_inference_steps` | Denoising steps | 50 |
+| **CLIP Eval** | `--clip_i_weight / --clip_t_weight` | Image/Text evaluation weights | 0.6 / 0.4 |
+| | `--batch_size` | Evaluation batch size | 8 |
+| | `--create_visualizations` | Generate analysis plots | False |
 
 ## 🧠 Technical Architecture
 
@@ -208,6 +219,9 @@ dpo_loss = compute_dpo_loss(model_preds, ref_preds, beta=0.1)
 
 **DPO Training Strategy**: Applied to 1% of steps after warmup (step >1500), memory-efficient candidate generation without gradients.
 
+### CLIP Score Evaluation
+Quantitative assessment using CLIP-I (image similarity) and CLIP-T (text alignment) scores with weighted combination (0.6×CLIP-I + 0.4×CLIP-T).
+
 ### Temporal Inference
 ```python
 # Style evolution for future prediction
@@ -228,6 +242,13 @@ temporal_vitonhd_dpo_checkpoints/
         ├── predictions/[categories]/
         ├── captions_used.txt
         └── category_statistics.json
+
+clip_evaluation_results_YYYYMMDD_HHMMSS/
+├── summary.json              # Overall statistics and averages
+├── individual_scores.json    # Per-image detailed scores
+├── scores.csv               # CSV format for analysis
+├── clip_analysis.png        # Visualization plots
+└── evaluation.log          # Execution log
 ```
 
 ## 🔍 Troubleshooting
