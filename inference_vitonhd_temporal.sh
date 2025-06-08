@@ -8,7 +8,7 @@ echo "Clearing GPU memory..."
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null || true
 
 # Configuration
-DATASET_PATH="/root/multimodal-garment-designer/dataset_vitonhd_format"
+DATASET_PATH="./dataset_vitonhd_format"
 OUTPUT_DIR="./temporal_vitonhd_checkpoints"
 EXPERIMENT_NAME="temporal_vitonhd_$(date +%Y%m%d_%H%M%S)"
 

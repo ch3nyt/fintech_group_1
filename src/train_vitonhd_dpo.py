@@ -449,8 +449,8 @@ def main():
             args.pretrained_model_name_or_path, subfolder="unet"
         )
         try:
-        state_dict = torch.load(args.resume_from_checkpoint, map_location="cpu", weights_only=True)
-        unet.load_state_dict(state_dict)
+            state_dict = torch.load(args.resume_from_checkpoint, map_location="cpu", weights_only=True)
+            unet.load_state_dict(state_dict)
             logger.info(f"Successfully loaded checkpoint from {args.resume_from_checkpoint}")
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}")

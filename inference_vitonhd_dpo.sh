@@ -8,7 +8,7 @@ echo "Clearing GPU memory..."
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null || true
 
 # Configuration
-DATASET_PATH="/root/multimodal-garment-designer/dataset_vitonhd_format"
+DATASET_PATH="./dataset_vitonhd_format"
 OUTPUT_DIR="./temporal_vitonhd_dpo_inference"
 EXPERIMENT_NAME="temporal_vitonhd_dpo_inference_$(date +%Y%m%d_%H%M%S)"
 
@@ -52,7 +52,7 @@ echo "Starting DPO inference..." | tee -a "$LOG_FILE"
 
 # Option 1: Use evolved/generated captions (default)
 echo "Using evolved caption generation..." | tee -a "$LOG_FILE"
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/eval_temporal.py \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/eval_temporal.py \
     --dataset_path $DATASET_PATH \
     --checkpoint_path $CHECKPOINT_PATH \
     --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME \

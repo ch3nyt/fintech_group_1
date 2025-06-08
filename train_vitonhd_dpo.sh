@@ -8,7 +8,7 @@ echo "Clearing GPU memory..."
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null || true
 
 # Configuration
-DATASET_PATH="./multimodal-garment-designer/dataset_vitonhd_format"
+DATASET_PATH="./dataset_vitonhd_format"
 OUTPUT_DIR="./temporal_vitonhd_dpo_checkpoints"
 EXPERIMENT_NAME="temporal_vitonhd_dpo_$(date +%Y%m%d_%H%M%S)"
 
@@ -57,7 +57,7 @@ fi
 
 # Run DPO training with memory-efficient settings
 echo "Starting DPO training..." | tee -a "$LOG_FILE"
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 src/train_vitonhd_dpo.py \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/train_vitonhd_dpo.py \
     --dataset_path $DATASET_PATH \
     --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME \
     $([ ! -z "$RESUME_CHECKPOINT" ] && echo "--resume_from_checkpoint $RESUME_CHECKPOINT") \
@@ -99,7 +99,7 @@ else
     CHECKPOINT_PATH="$LATEST_CHECKPOINT/unet.pth"
 fi
 
-python3 src/eval_temporal.py \
+python3 ./src/eval_temporal.py \
     --dataset_path $DATASET_PATH \
     --checkpoint_path $CHECKPOINT_PATH \
     --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME/test_results \
