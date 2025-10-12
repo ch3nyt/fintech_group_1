@@ -41,7 +41,7 @@ echo "- CLIP-T weight: 0.4" | tee -a "$LOG_FILE"
 echo "- DPO frequency: 5% (increased due to efficiency)" | tee -a "$LOG_FILE"
 echo "- Inference steps: 10 (ultra-reduced for memory)" | tee -a "$LOG_FILE"
 echo "- Learning rate: 5e-6 (reduced for fine-tuning)" | tee -a "$LOG_FILE"
-echo "- Max steps: 7500 (continuing from 5000)" | tee -a "$LOG_FILE"
+echo "- Max steps: 50 (continuing from 5000)" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
 # Verify checkpoint exists (only if resume path is provided)
@@ -56,6 +56,7 @@ else
 fi
 
 # Run DPO training with memory-efficient settings
+# max_train_steps 從 5000 -> 50, sace_Steps from 500 -> 50
 echo "Starting DPO training..." | tee -a "$LOG_FILE"
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/train_vitonhd_dpo.py \
     --dataset_path $DATASET_PATH \
@@ -72,11 +73,11 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/train_vitonhd_dpo
     --dpo_frequency 0.05 \
     --num_inference_steps 10 \
     --learning_rate 5e-6 \
-    --max_train_steps 50 \  # 原本是 5000, 小降
+    --max_train_steps 50 \  
     --batch_size 1 \
     --mixed_precision fp16 \
     --gradient_accumulation_steps 16 \
-    --save_steps 50 \  # 500 -> 50
+    --save_steps 50 \  
     --num_workers 1 \
     --project_name "temporal-vitonhd-dpo-resumed" \
     --seed 42 \
