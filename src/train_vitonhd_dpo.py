@@ -308,6 +308,8 @@ def create_preference_pairs(
 
     return pairs
 
+'''
+10/07 替換成真正的 DPO
 
 def compute_dpo_loss(
     model_preferred_logits: torch.Tensor,
@@ -328,6 +330,7 @@ def compute_dpo_loss(
     """
     # Compute log probabilities as negative MSE (assuming Gaussian noise)
     # Lower MSE = higher log probability
+    # 10/06 不應該跟 0 比? 應該要與真實 noise 比較
     model_preferred_logprob = -F.mse_loss(model_preferred_logits, torch.zeros_like(model_preferred_logits), reduction='none').mean(dim=[1,2,3])
     model_rejected_logprob = -F.mse_loss(model_rejected_logits, torch.zeros_like(model_rejected_logits), reduction='none').mean(dim=[1,2,3])
     ref_preferred_logprob = -F.mse_loss(ref_preferred_logits, torch.zeros_like(ref_preferred_logits), reduction='none').mean(dim=[1,2,3])
@@ -341,7 +344,192 @@ def compute_dpo_loss(
     loss = -F.logsigmoid(beta * (model_logratios - ref_logratios)).mean()
 
     return loss
+'''
+# ===== DPO helpers =====
+import torch
+import torch.nn.functional as F
 
+@torch.no_grad()
+def _encode_to_latents(x_img_bchw: torch.Tensor, vae, scaling: float, use_mean: bool = True) -> torch.Tensor:
+    """
+    x_img_bchw: 影像張量，範圍須為 [-1,1]，shape [B,3,H,W]，dtype/裝置需與 VAE 相容
+    回傳：latent，shape [B,4,H/8,W/8]，已乘 scaling_factor
+    """
+    enc = vae.encode(x_img_bchw)
+    lat = enc.latent_dist.mean if use_mean else enc.latent_dist.sample()
+    return lat * scaling
+
+def _masked_mse_per_sample(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
+    """
+    逐樣本 MSE（可選用 mask 做區域平均）。回傳 [B]
+    pred/target: [B,C,H,W]；mask: [B,1,H,W] 或 [B,H,W]，1=計分
+    """
+    mse = (pred - target) ** 2
+    if mask is not None:
+        while mask.dim() < pred.dim():
+            mask = mask.unsqueeze(1)  # -> [B,1,H,W]
+        mask = mask.to(pred.dtype)
+        mse = mse * mask
+        denom = mask.flatten(1).sum(dim=1).clamp_min(1.0)
+        return mse.flatten(1).sum(dim=1) / denom
+    else:
+        return mse.flatten(1).mean(dim=1)
+
+def compute_true_dpo_loss(
+    model_pref: torch.Tensor, model_rej: torch.Tensor,
+    ref_pref: torch.Tensor,   ref_rej: torch.Tensor,
+    target_pref: torch.Tensor, target_rej: torch.Tensor,
+    mask_latent: torch.Tensor | None,
+    beta: float
+) -> torch.Tensor:
+    """
+    真正的 DPO：log p 以 -MSE 近似，且 y+ / y- 用相同 (t, ε) 與相同條件。
+    所有張量 shape 應為 [B,C,H,W]（除了 mask 可為 [B,1,H,W]）。
+    """
+    ref_pref = ref_pref.detach()
+    ref_rej  = ref_rej.detach()
+
+    # log p ≈ -MSE
+    mse_m_p = _masked_mse_per_sample(model_pref, target_pref, mask_latent)  # [B]
+    mse_m_r = _masked_mse_per_sample(model_rej,  target_rej,  mask_latent)
+    mse_r_p = _masked_mse_per_sample(ref_pref,   target_pref, mask_latent)
+    mse_r_r = _masked_mse_per_sample(ref_rej,    target_rej,  mask_latent)
+
+    # Δ_model = logp(y+) - logp(y-) ≈ -(MSE+ - MSE-) = MSE- - MSE+
+    delta_model = (mse_m_r - mse_m_p)  # [B]
+    delta_ref   = (mse_r_r - mse_r_p)  # [B]
+
+    # DPO = -log σ(β(Δ_model - Δ_ref))
+    return -F.logsigmoid(beta * (delta_model - delta_ref)).mean()
+
+def true_dpo_forward_once(
+    y_pos_chw: torch.Tensor,          # 候選最佳 y+，[-1,1]，[3,H,W]
+    y_neg_chw: torch.Tensor,          # 候選最差 y-，[-1,1]，[3,H,W]
+    img0_chw: torch.Tensor,           # 原始條件中的 image（同一筆樣本），[-1,1]，[3,H,W]
+    mask0_chw: torch.Tensor,          # 對應的 inpaint mask，1=要修補，[1,H,W]
+    enc_hidden_states_bld: torch.Tensor,  # [1, seq_len, D]（只給這一筆樣本）
+    unet, ref_unet, vae, noise_scheduler,
+    vae_scaling: float,
+    beta: float,
+    device: torch.device
+) -> torch.Tensor:
+    """
+    以單一 pair（取 batch 的第 0 筆）計算真正 DPO 損失。
+    流程：encode y+/y- -> 同一 (t,ε) 造噪 -> 組 9-ch inpaint 輸入 -> model/ref forward -> DPO。
+    """
+    # --- 尺寸/型別對齊 ---
+    H, W = img0_chw.shape[-2:]
+    def _resize_img_chw(x):
+        x = x.unsqueeze(0) if x.dim()==3 else x  # -> [1,3,H,W]
+        return F.interpolate(x, size=(H, W), mode='bilinear', align_corners=False)
+
+    y_pos = _resize_img_chw(y_pos_chw.clamp(-1,1)).to(device=device, dtype=vae.dtype)   # [1,3,H,W]
+    y_neg = _resize_img_chw(y_neg_chw.clamp(-1,1)).to(device=device, dtype=vae.dtype)   # [1,3,H,W]
+    img0  = img0_chw.unsqueeze(0).to(device=device, dtype=vae.dtype)                    # [1,3,H,W]
+    mask0 = mask0_chw.unsqueeze(0).to(device=device)                                    # [1,1,H,W]
+
+    # --- encode 到 latent（用 posterior mean 比較穩） ---
+    with torch.no_grad():
+        lat_pos = _encode_to_latents(y_pos, vae, vae_scaling, use_mean=True)   # [1,4,h,w]
+        lat_neg = _encode_to_latents(y_neg, vae, vae_scaling, use_mean=True)
+        masked_img = img0 * (1 - mask0)                                       # [1,3,H,W]
+        masked_lat = _encode_to_latents(masked_img, vae, vae_scaling, use_mean=True)
+        mask_lat  = F.interpolate(mask0.float(), size=lat_pos.shape[-2:], mode='nearest')  # [1,1,h,w]
+
+    # --- 抽同一組 (t, ε) 並加噪 ---
+    t = torch.randint(0, noise_scheduler.config.num_train_timesteps, (1,), device=device).long()
+    eps = torch.randn_like(lat_pos)
+    x_t_pos = noise_scheduler.add_noise(lat_pos, eps, t)
+    x_t_neg = noise_scheduler.add_noise(lat_neg, eps, t)
+
+    # --- 組 SD2 Inpainting 的 9 通道輸入：4 + 1 + 4 ---
+    inp_pos = torch.cat([x_t_pos, mask_lat, masked_lat], dim=1)  # [1,9,h,w]
+    inp_neg = torch.cat([x_t_neg, mask_lat, masked_lat], dim=1)
+
+    # --- 目標 target（依 scheduler.prediction_type）---
+    pred_type = getattr(noise_scheduler.config, "prediction_type", "epsilon")
+    if pred_type == "epsilon":
+        tgt_pos = eps
+        tgt_neg = eps
+    elif pred_type == "v_prediction":
+        tgt_pos = noise_scheduler.get_velocity(lat_pos, eps, t)
+        tgt_neg = noise_scheduler.get_velocity(lat_neg, eps, t)
+    else:
+        raise ValueError(f"Unknown prediction_type: {pred_type}")
+
+    # --- 前向：model / ref ---
+    model_pos = unet(inp_pos, t, encoder_hidden_states=enc_hidden_states_bld).sample
+    model_neg = unet(inp_neg, t, encoder_hidden_states=enc_hidden_states_bld).sample
+    with torch.no_grad():
+        ref_pos = ref_unet(inp_pos, t, encoder_hidden_states=enc_hidden_states_bld).sample
+        ref_neg = ref_unet(inp_neg, t, encoder_hidden_states=enc_hidden_states_bld).sample
+
+    # --- DPO（只在 inpaint 區域計分）---
+    dpo_loss = compute_true_dpo_loss(
+        model_pos, model_neg, ref_pos, ref_neg,
+        tgt_pos, tgt_neg, mask_latent=mask_lat, beta=beta
+    )
+    return dpo_loss
+# ===== end DPO helpers =====
+
+def _masked_mse_per_sample(pred: torch.Tensor,
+                           target: torch.Tensor,
+                           mask: torch.Tensor | None = None) -> torch.Tensor:
+    """
+    回傳 shape = [B] 的逐樣本 MSE。
+    pred/target: [B,C,H,W]
+    mask:        [B,1,H,W] 或 [B,H,W] 或 [B]；1=計分區域，0=忽略
+    """
+    mse = (pred - target) ** 2
+    if mask is not None:
+        # 將 mask broadcast 到 pred 形狀
+        while mask.dim() < pred.dim():
+            mask = mask.unsqueeze(1)             # -> [B,1,H,W]
+        mask = mask.to(pred.dtype)
+        mse = mse * mask
+        # 逐樣本平均：用有效像素數做歸一化，避免全零導致 NaN
+        denom = mask.flatten(1).sum(dim=1).clamp_min(1.0)
+        mse = mse.flatten(1).sum(dim=1) / denom
+        return mse  # [B]
+    else:
+        # 無 mask 時，對空間與通道取平均，保留 batch 維
+        return F.mse_loss(pred, target, reduction='none').flatten(1).mean(dim=1)
+
+'''
+def compute_dpo_loss(
+    model_preferred_logits: torch.Tensor,   # UNet 對 y⁺ 的預測 (ε̂ 或 v̂)，shape [B,C,H,W]
+    model_rejected_logits: torch.Tensor,    # UNet 對 y⁻ 的預測
+    ref_preferred_logits: torch.Tensor,     # 參考模型對 y⁺ 的預測
+    ref_rejected_logits: torch.Tensor,      # 參考模型對 y⁻ 的預測
+    target_preferred: torch.Tensor,         # 真實 target：若 pred_type="epsilon" 則是真實 ε；若 "v_prediction" 則為 v
+    target_rejected: torch.Tensor,          # 與上同理
+    mask_latent: torch.Tensor | None = None,# 可選，inpainting 修補區域的 latent 級遮罩，1=計分
+    beta: float = 0.1
+) -> torch.Tensor:
+    """
+    真正的 DPO：以 -MSE 當作 log p 的 proxy。
+    需保證 y⁺/y⁻ 使用「相同的 (t, ε)」與相同的條件（文字/遮罩/被遮影像）來評估。
+    """
+
+    # 參考模型不反傳梯度（再次保險）
+    ref_preferred_logits = ref_preferred_logits.detach()
+    ref_rejected_logits  = ref_rejected_logits.detach()
+
+    # 用 masked/非 masked MSE 做為 -loglik 的相反數
+    # logprob ≈ -MSE(pred, target)
+    model_mse_pref = _masked_mse_per_sample(model_preferred_logits, target_preferred, mask_latent)  # [B]
+    model_mse_rej  = _masked_mse_per_sample(model_rejected_logits,  target_rejected,  mask_latent)  # [B]
+    ref_mse_pref   = _masked_mse_per_sample(ref_preferred_logits,   target_preferred, mask_latent)  # [B]
+    ref_mse_rej    = _masked_mse_per_sample(ref_rejected_logits,    target_rejected,  mask_latent)  # [B]
+
+    # log p ≈ -MSE，因此 Δ_model = logp(y⁺) - logp(y⁻) ≈ -(MSE⁺ - MSE⁻) = (MSE⁻ - MSE⁺)
+    delta_model = (model_mse_rej - model_mse_pref)  # [B]
+    delta_ref   = (ref_mse_rej  - ref_mse_pref)     # [B]
+
+    # DPO loss: -log σ(β(Δ_model - Δ_ref))
+    dpo = -F.logsigmoid(beta * (delta_model - delta_ref))  # [B]
+    return dpo.mean()
+'''
 
 def compute_temporal_consistency_loss(current_latents, past_conditioning, temporal_weights):
     """Compute temporal consistency loss to encourage smooth transitions"""
@@ -573,7 +761,23 @@ def main():
     running_loss = 0.0
     running_dpo_loss = 0.0
     last_dpo_step = -1  # Track the last step where DPO was applied
-
+    
+    '''
+    def to_dev(x, device=None, fp_dtype=None):
+        """
+        安全地把張量搬到 device，僅在浮點類型時轉成指定 dtype。
+        - device: 預設 accelerator.device
+        - fp_dtype: 想用的浮點 dtype（例如 unet.dtype 或 weight_dtype）
+        """
+        if not isinstance(x, torch.Tensor):
+            return x
+        device = device or accelerator.device
+        if x.dtype.is_floating_point:          # 只轉浮點
+            return x.to(device=device, dtype=(fp_dtype or x.dtype))
+        else:
+            return x.to(device=device)          # int/bool 不轉 dtype
+    '''
+    
     for epoch in range(1000):  # Large number, will break with max_train_steps
         for batch in train_dataloader:
             with accelerator.accumulate(unet):
@@ -590,6 +794,25 @@ def main():
                 latents = vae.encode(images).latent_dist.sample()
                 vae_scaling_factor = getattr(vae.config, 'scaling_factor', 0.18215)
                 latents = latents * vae_scaling_factor
+
+                # 10/06 將這些拉入 cpu 內?
+                unet.train()                  # from_pretrained 預設 eval，記得開訓練模式
+                vae.eval(); text_encoder.eval(); ref_unet.eval()
+
+                device = accelerator.device
+                images = images.to(device=device, dtype=vae.dtype)
+                masks  = masks.to(device=device, dtype=images.dtype)
+                temporal_weights = temporal_weights.to(device)
+
+                # 若 past_conditioning 是 dict，遞迴搬 tensor
+                def _to_dev(x):
+                    if torch.is_tensor(x): return x.to(device)
+                    if isinstance(x, dict): return {k:_to_dev(v) for k,v in x.items()}
+                    if isinstance(x, (list, tuple)): return type(x)(_to_dev(v) for v in x)
+                    return x
+                past_conditioning = _to_dev(past_conditioning)
+
+
 
                 # Sample noise and timesteps
                 noise = torch.randn_like(latents)
@@ -608,7 +831,22 @@ def main():
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Encode text prompts
+                '''
+                原本這樣寫
                 encoder_hidden_states = text_encoder(captions)[0]
+                10/06 先丟 tokenizer 再去 text_encoder
+                '''
+                tok = tokenizer(
+                    list(captions),  # or captions if already list
+                    padding="max_length",
+                    truncation=True,
+                    max_length=tokenizer.model_max_length,
+                    return_tensors="pt",
+                )
+                tok = {k: v.to(accelerator.device) for k, v in tok.items()}
+                with torch.no_grad():  # 文字編碼固定
+                    encoder_hidden_states = text_encoder(**tok).last_hidden_state  # [B, 77, D]
+
 
                 # Prepare SD2 inpainting conditioning (9 channels total)
                 # Resize mask to latent space
@@ -691,11 +929,12 @@ def main():
                             clip_scores = []
                             with torch.no_grad():
                                 for idx, candidate in enumerate(candidates):
+                                    candidate = (candidate.clamp(-1,1) + 1) / 2  # [-1,1] -> [0,1]
                                     candidate = candidate.to(accelerator.device)
 
                                     # Prepare images for CLIP processing
                                     candidate_pil = transforms.ToPILImage()(candidate.cpu())
-                                    target_pil = transforms.ToPILImage()(images[0].cpu())
+                                    target_pil = transforms.ToPILImage()(((images[0].detach().clamp(-1,1) + 1) / 2).cpu())
 
                                     # CLIP-I score (image-image similarity)
                                     target_inputs = clip_scorer.processor(images=target_pil, return_tensors="pt")
@@ -703,10 +942,12 @@ def main():
 
                                     target_features = clip_scorer.model.get_image_features(target_inputs['pixel_values'].to(accelerator.device))
                                     candidate_features = clip_scorer.model.get_image_features(candidate_inputs['pixel_values'].to(accelerator.device))
+                                    target_features = F.normalize(target_features, dim=-1)  # 10/06 正規化
+                                    candidate_features = F.normalize(candidate_features, dim=-1)
                                     clip_i_score = F.cosine_similarity(target_features, candidate_features, dim=-1)
 
                                     # CLIP-T score (text-image similarity)
-                                    caption_text = "A person wearing clothing"
+                                    caption_text = batch["caption"][0] if batch["caption"][0] != "" else "A person wearing clothing"
                                     text_inputs = clip_scorer.processor(text=caption_text, return_tensors="pt", padding=True, truncation=True)
                                     text_features = clip_scorer.model.get_text_features(text_inputs['input_ids'].to(accelerator.device))
                                     clip_t_score = F.cosine_similarity(text_features, candidate_features, dim=-1)
@@ -756,12 +997,52 @@ def main():
 
                                         # Simple DPO-inspired loss: encourage better predictions
                                         # Use the current model prediction and add a small preference penalty
-                                        dpo_loss = preference_strength * 0.1 * F.mse_loss(model_pred, target)
+                                        '''10/07 想替換成真正的 DPO'''
+                                        # 如果用真正的 dpo_loss = preference_strength * 0.1 * F.mse_loss(model_pred, target)
+                                        # ==== 真正 DPO：用 best vs. worst pair 做一次 forward ====
+                                        try:
+                                            # 取最優與最差候選（你上面已經算過 best_idx / worst_idx）
+                                            y_pos = candidates[best_idx]  # [-1,1], [3,h,w] (可能在 CPU)
+                                            y_neg = candidates[worst_idx]
 
-                                        print(f"✅ SIMPLIFIED DPO LOSS: {dpo_loss.item():.4f}")
-                                        print(f"   Score ratio: {score_ratio:.4f}")
-                                        print(f"   Preference strength: {preference_strength:.4f}")
-                                        print(f"   Best score: {best_score:.4f}, Worst score: {worst_score:.4f}")
+                                            # 檢查分數差距；太小就跳過（避免噪聲偏好對）
+                                            if abs(score_diff) <= 1e-4:
+                                                print(f"❌ Score difference too small ({score_diff:.6f} ≤ 1e-4), skipping true DPO")
+                                                dpo_loss = torch.tensor(0.0, device=accelerator.device)
+                                            else:
+                                                # 資料與條件：只用 batch 的第 0 筆（你目前候選也是用 images[0], masks[0]）
+                                                img0   = images[0]             # [-1,1], [3,H,W], 已在 device
+                                                mask0  = masks[0]              # [1,H,W]
+                                                enc_hs = encoder_hidden_states[0:1]  # [1, seq_len, D]
+
+                                                # 將候選搬到同裝置/型別（保持 [-1,1]）
+                                                y_pos = y_pos.to(device=accelerator.device, dtype=vae.dtype)
+                                                y_neg = y_neg.to(device=accelerator.device, dtype=vae.dtype)
+
+                                                # 真正 DPO 前向一次（單 pair）
+                                                dpo_loss = true_dpo_forward_once(
+                                                    y_pos_chw=y_pos, y_neg_chw=y_neg,
+                                                    img0_chw=img0, mask0_chw=mask0,
+                                                    enc_hidden_states_bld=enc_hs,
+                                                    unet=accelerator.unwrap_model(unet),   # 建議用 unwrap_model，與 pipe 相容
+                                                    ref_unet=ref_unet,
+                                                    vae=vae, noise_scheduler=noise_scheduler,
+                                                    vae_scaling=vae_scaling_factor,
+                                                    beta=args.dpo_beta,
+                                                    device=accelerator.device
+                                                )
+
+                                                print(f"✅ TRUE DPO LOSS: {dpo_loss.item():.6f} (beta={args.dpo_beta})")
+
+                                        except Exception as dpo_error:
+                                            print(f"❌ TRUE DPO failed: {dpo_error}")
+                                            import traceback; traceback.print_exc()
+                                            dpo_loss = torch.tensor(0.0, device=accelerator.device)
+                                        # ==== end 真正 DPO ====
+                                        # print(f"✅ SIMPLIFIED DPO LOSS: {dpo_loss.item():.4f}")
+                                        # print(f"   Score ratio: {score_ratio:.4f}")
+                                        # print(f"   Preference strength: {preference_strength:.4f}")
+                                        # print(f"   Best score: {best_score:.4f}, Worst score: {worst_score:.4f}")
 
                                     except Exception as dpo_error:
                                         print(f"❌ Simplified DPO failed: {dpo_error}")
