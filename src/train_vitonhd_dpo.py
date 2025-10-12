@@ -23,7 +23,12 @@ from PIL import Image
 # custom imports
 from datasets.temporal_vitonhd_dataset import TemporalVitonHDDataset
 from utils.set_seeds import set_seed
+from transformers import CLIPTokenizer
 
+import torch
+import torch.nn.functional as F
+
+import traceback; traceback.print_exc()
 logger = get_logger(__name__, log_level="INFO")
 
 class CLIPScorer:
@@ -169,7 +174,6 @@ def generate_candidates(
             else:
                 # It's tokenized, need to decode
                 try:
-                    from transformers import CLIPTokenizer
                     tokenizer = CLIPTokenizer.from_pretrained("stabilityai/stable-diffusion-2-inpainting", subfolder="tokenizer")
                     prompt = tokenizer.decode(batch['captions'][0], skip_special_tokens=True)
                 except:
@@ -346,8 +350,6 @@ def compute_dpo_loss(
     return loss
 '''
 # ===== DPO helpers =====
-import torch
-import torch.nn.functional as F
 
 @torch.no_grad()
 def _encode_to_latents(x_img_bchw: torch.Tensor, vae, scaling: float, use_mean: bool = True) -> torch.Tensor:
@@ -602,7 +604,6 @@ def main():
     # Initialize wandb
     if args.use_wandb and accelerator.is_main_process:
         try:
-            import wandb
             wandb.init(project=args.project_name, config=vars(args))
             wandb_available = True
         except Exception as e:
@@ -1036,7 +1037,6 @@ def main():
 
                                         except Exception as dpo_error:
                                             print(f"❌ TRUE DPO failed: {dpo_error}")
-                                            import traceback; traceback.print_exc()
                                             dpo_loss = torch.tensor(0.0, device=accelerator.device)
                                         # ==== end 真正 DPO ====
                                         # print(f"✅ SIMPLIFIED DPO LOSS: {dpo_loss.item():.4f}")
@@ -1065,7 +1065,6 @@ def main():
 
                     except Exception as e:
                         print(f"💥 DPO computation failed: {e}")
-                        import traceback
                         traceback.print_exc()
                         dpo_loss = torch.tensor(0.0).to(accelerator.device)
 
