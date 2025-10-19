@@ -19,6 +19,7 @@ from datetime import datetime
 import re
 import torchvision.transforms as transforms
 from PIL import Image
+import bitsandbytes as bnb
 
 # custom imports
 from datasets.temporal_vitonhd_dataset import TemporalVitonHDDataset
@@ -709,10 +710,16 @@ def main():
     )
 
     # Initialize optimizer
+    # 為了節省記憶體再換更 efficient 的
+    '''
     optimizer = torch.optim.AdamW(
         unet.parameters(),
         lr=args.learning_rate,
         weight_decay=0.01
+    )
+    '''
+    optimizer = bnb.optim.AdamW8bit(
+        unet.parameters(), lr=5e-6, weight_decay=1e-2
     )
 
     # Prepare everything with accelerator
