@@ -168,18 +168,11 @@ def generate_candidates(
             mask_image = masks[0] if isinstance(masks, (list, tuple)) else masks
 
         # Get prompt - handle both string and token formats
-        if 'captions' in batch:
-            if isinstance(batch['captions'][0], str):
-                prompt = batch['captions'][0]
-            else:
-                # It's tokenized, need to decode
-                try:
-                    tokenizer = CLIPTokenizer.from_pretrained("stabilityai/stable-diffusion-2-inpainting", subfolder="tokenizer")
-                    prompt = tokenizer.decode(batch['captions'][0], skip_special_tokens=True)
-                except:
-                    prompt = "fashionable clothing item"
+        # 所以這裡其實只要 string 的 caption? 在 main 將 batch['captions'] 處理成 List[str] 即可
+        if isinstance(batch['captions'][0], str):
+            prompt = batch['captions'][0]
         else:
-            prompt = "fashionable clothing item"
+            prompt = "fashionable clothing item"  # default prompt
 
         # Clean up prompt to avoid repetition issues
         prompt = prompt.strip()
@@ -837,17 +830,32 @@ def main():
                 encoder_hidden_states = text_encoder(captions)[0]
                 10/06 先丟 tokenizer 再去 text_encoder
                 '''
+                def normalize_to_text_list(x):
+                    # 期望：x 最終變成 List[str]
+                    if x is None:
+                        return [""]
+                    # dataloader 取回來常是 list/tuple/ndarray
+                    if isinstance(x, np.ndarray):
+                        x = x.tolist()
+                    if isinstance(x, (list, tuple)):
+                        return ["" if t is None else str(t) for t in x]
+                    # 單一元素（純字串或數值）
+                    return ["" if x is None else str(x)]
+
+                batch["captions"] = normalize_to_text_list(batch["captions"])  # → List[str]
+
                 tok = tokenizer(
-                    list(captions),  # or captions if already list
-                    padding="max_length",
+                    batch["captions"],
+                    padding="max_length",                     # 對齊到 model_max_length（SD/CLIP 常見 77）
                     truncation=True,
                     max_length=tokenizer.model_max_length,
                     return_tensors="pt",
                 )
                 tok = {k: v.to(accelerator.device) for k, v in tok.items()}
-                with torch.no_grad():  # 文字編碼固定
-                    encoder_hidden_states = text_encoder(**tok).last_hidden_state  # [B, 77, D]
 
+                # 你原註解寫「文字編碼固定」→ no_grad 是合理的
+                with torch.no_grad():
+                    encoder_hidden_states = text_encoder(**tok).last_hidden_state   # [B, 77, D]
 
                 # Prepare SD2 inpainting conditioning (9 channels total)
                 # Resize mask to latent space
