@@ -958,7 +958,7 @@ def main():
                                     clip_i_score = F.cosine_similarity(target_features, candidate_features, dim=-1)
 
                                     # CLIP-T score (text-image similarity)
-                                    caption_text = batch["caption"][0] if batch["caption"][0] != "" else "A person wearing clothing"
+                                    caption_text = batch["captions"][0] if batch["captions"][0] != "" else "A person wearing clothing"
                                     text_inputs = clip_scorer.processor(text=caption_text, return_tensors="pt", padding=True, truncation=True)
                                     text_features = clip_scorer.model.get_text_features(text_inputs['input_ids'].to(accelerator.device))
                                     clip_t_score = F.cosine_similarity(text_features, candidate_features, dim=-1)
