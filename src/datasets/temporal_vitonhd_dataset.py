@@ -32,7 +32,7 @@ class TemporalVitonHDDataset(data.Dataset):
         num_past_weeks: int = 4,
         temporal_weight_decay: float = 0.8,
         sketch_threshold_range: Tuple[int, int] = (20, 127),
-        size: Tuple[int, int] = (512, 384),
+        size: Tuple[int, int] = (432, 288),
         category_filter: Optional[List[str]] = None,  # Filter specific categories
     ):
         super(TemporalVitonHDDataset, self).__init__()
