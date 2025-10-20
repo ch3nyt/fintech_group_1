@@ -363,3 +363,7 @@ __MACOSX/*
 /__MACOSX/*
 /ckpt/*
 /ref_image/*
+VISUELLE/category_labels.pt
+VISUELLE/color_labels.pt
+VISUELLE/fabric_labels.pt
+VISUELLE/normalization_scale.npy

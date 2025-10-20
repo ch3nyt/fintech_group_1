@@ -107,6 +107,7 @@ def parse_args():
     parser.add_argument("--clip_t_weight", type=float, default=0.4, help="Weight for CLIP-T score")
     parser.add_argument("--dpo_frequency", type=float, default=0.01, help="Frequency of applying DPO loss (0.05 = 5% of batches)")
     parser.add_argument("--num_inference_steps", type=int, default=20, help="Number of inference steps for candidate generation")
+    parser.add_argument("--image_size", type=tuple, default=(432, 288), help="Image size (height, width) for training and generation")
 
     # Category filter
     parser.add_argument("--categories", type=str, nargs='+', default=None,
@@ -132,6 +133,7 @@ def parse_args():
 
     # Resume training
     parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="Path to checkpoint to resume from")
+    
 
     return parser.parse_args()
 
@@ -144,6 +146,7 @@ def generate_candidates(
     device: torch.device
 ) -> List[torch.Tensor]:
     """Generate multiple candidate images for DPO using SD2 inpainting pipeline"""
+    args= parse_args()
     candidates = []
 
     # Memory optimization: Clear cache before generation
@@ -191,7 +194,7 @@ def generate_candidates(
         mask_pil = transforms.ToPILImage()(mask_tensor.cpu())
 
         # Memory optimization: Use smaller resolution for candidate generation
-        target_height, target_width = 128, 96  # Ultra-small resolution for maximum memory efficiency
+        target_height, target_width = 144, 96  # Ultra-small resolution for maximum memory efficiency
 
         # Generate candidates with different seeds for diversity
         for i in range(actual_num_candidates):
@@ -206,7 +209,7 @@ def generate_candidates(
                 # Call SD2 inpainting pipeline with memory optimizations
                 with torch.no_grad():
                     # Enable memory efficient settings
-                    pipe.enable_attention_slicing()
+                    # pipe.enable_attention_slicing() (外層的 sd2_pipe 已經啟用了)
                     # Remove CPU offloading as it conflicts with training
 
                     result = pipe(
@@ -228,8 +231,8 @@ def generate_candidates(
                     # Convert PIL Image to tensor for consistency
                     if hasattr(generated_img, 'convert'):  # It's a PIL Image
                         # Resize back to original size if needed
-                        if target_height != 512 or target_width != 384:
-                            generated_img = generated_img.resize((384, 512), Image.Resampling.LANCZOS)
+                        if target_height != args.image_size[0] or target_width != args.image_size[1]:
+                            generated_img = generated_img.resize(args.image_size, Image.Resampling.LANCZOS)
 
                         img_tensor = transforms.ToTensor()(generated_img.convert('RGB'))
                         # Normalize to [-1, 1] to match training data format
@@ -686,6 +689,7 @@ def main():
         logger.warning(f"Could not enable VAE tiling: {e}")
 
     # Prepare dataset
+    # 10/20 改成 576 for 原本的圖片是 1166*1750 (2:3 直式)
     try:
         train_dataset = TemporalVitonHDDataset(
             dataroot_path=args.dataset_path,
@@ -693,7 +697,7 @@ def main():
             tokenizer=tokenizer,
             num_past_weeks=args.num_past_weeks,
             temporal_weight_decay=args.temporal_weight_decay,
-            size=(512, 384),
+            size=args.image_size,
             category_filter=args.categories
         )
         logger.info(f"Successfully created dataset with {len(train_dataset)} samples")
@@ -730,7 +734,7 @@ def main():
     # Move models to device
     text_encoder.to(accelerator.device)
     vae.to(accelerator.device)
-    ref_unet.to(accelerator.device)
+    ref_unet.to('cpu')
 
     # Create SD2 inpainting pipeline for candidate generation
     sd2_pipe = StableDiffusionInpaintPipeline(
@@ -745,7 +749,6 @@ def main():
 
     # Memory optimizations for the pipeline (safe for training)
     sd2_pipe.enable_attention_slicing()
-    # Remove CPU offloading as it conflicts with training setup
 
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
@@ -911,7 +914,7 @@ def main():
                 # Initialize total loss
                 total_loss = main_loss + args.temporal_loss_weight * temporal_loss
 
-                # DPO loss computation (with probability) - only on first accumulation step
+                # (重點在這裡)DPO loss computation (with probability) - only on first accumulation step
                 dpo_loss = torch.tensor(0.0).to(accelerator.device)
                 if (random.random() < args.dpo_frequency and global_step > 0 and
                     last_dpo_step != global_step):  # Only once per global step
@@ -922,20 +925,12 @@ def main():
                         # Memory optimization: Clear cache before DPO
                         torch.cuda.empty_cache()
 
-                        # Memory optimization: Temporarily move some models to CPU during candidate generation
-                        ref_unet.cpu()
-                        torch.cuda.empty_cache()
-
                         # Step 1: Generate candidates WITHOUT gradients for scoring
                         with torch.no_grad():
                             candidates = generate_candidates(
                                 sd2_pipe, batch, args.num_candidates,
                                 args.num_inference_steps, accelerator.device
                             )
-
-                        # Move ref_unet back to GPU after candidate generation
-                        ref_unet.to(accelerator.device)
-                        torch.cuda.empty_cache()
 
                         # Only proceed if we have candidates
                         if len(candidates) >= 2:  # Need at least 2 candidates for preference pairs
@@ -1034,7 +1029,7 @@ def main():
                                                 # 將候選搬到同裝置/型別（保持 [-1,1]）
                                                 y_pos = y_pos.to(device=accelerator.device, dtype=vae.dtype)
                                                 y_neg = y_neg.to(device=accelerator.device, dtype=vae.dtype)
-
+                                                ref_unet.to(accelerator.device)  # 確保 ref_unet 在 GPU     
                                                 # 真正 DPO 前向一次（單 pair）
                                                 dpo_loss = true_dpo_forward_once(
                                                     y_pos_chw=y_pos, y_neg_chw=y_neg,
@@ -1049,6 +1044,7 @@ def main():
                                                 )
 
                                                 print(f"✅ TRUE DPO LOSS: {dpo_loss.item():.6f} (beta={args.dpo_beta})")
+                                                ref_unet.to('cpu')  # 移回 CPU 省記憶體
 
                                         except Exception as dpo_error:
                                             print(f"❌ TRUE DPO failed: {dpo_error}")
@@ -1084,8 +1080,8 @@ def main():
                         dpo_loss = torch.tensor(0.0).to(accelerator.device)
 
                         # Ensure ref_unet is back on GPU even if there's an error
-                        ref_unet.to(accelerator.device)
-                        torch.cuda.empty_cache()
+                        # ref_unet.to(accelerator.device)
+                        # torch.cuda.empty_cache()
 
                 # Add DPO loss to total loss
                 total_loss = total_loss + args.dpo_weight * dpo_loss
@@ -1102,7 +1098,7 @@ def main():
 
                 # Backward pass
                 accelerator.backward(total_loss)
-
+                
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(unet.parameters(), 1.0)
 
