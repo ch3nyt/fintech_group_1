@@ -1030,7 +1030,7 @@ def main():
                                                 y_pos = y_pos.to(device=accelerator.device, dtype=vae.dtype)
                                                 y_neg = y_neg.to(device=accelerator.device, dtype=vae.dtype)
                                                 ref_unet.to(accelerator.device)  # 確保 ref_unet 在 GPU     
-                                                # 真正 DPO 前向一次（單 pair）
+                                                # 真正 DPO 前向一次（單 pair）# 幹跑不動 :(
                                                 dpo_loss = true_dpo_forward_once(
                                                     y_pos_chw=y_pos, y_neg_chw=y_neg,
                                                     img0_chw=img0, mask0_chw=mask0,
