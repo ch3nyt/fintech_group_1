@@ -3,7 +3,7 @@ from tqdm import tqdm
 import torch
 
 import torchvision.transforms as T
-from diffusers.pipeline_utils import DiffusionPipeline
+from diffusers import DiffusionPipeline
 from torch.utils.data import DataLoader
 from src.utils.image_composition import compose_img, compose_img_dresscode
 

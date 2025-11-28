@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
-        default="stabilityai/stable-diffusion-2-inpainting",
+        default="alwold/stable-diffusion-2-inpainting",
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument("--dataset_path", type=str, required=True, help="Path to temporal dataset")
