@@ -41,7 +41,7 @@ echo "- Number of candidates: 2" | tee -a "$LOG_FILE"
 echo "- DPO beta: 0.1" | tee -a "$LOG_FILE"
 echo "- DPO weight: 0.5" | tee -a "$LOG_FILE"
 echo "- CLIP-I/T weights: 0.6 / 0.4" | tee -a "$LOG_FILE"
-echo "- DPO frequency: 0.05" | tee -a "$LOG_FILE"
+echo "- DPO frequency: 0.01" | tee -a "$LOG_FILE"
 echo "- Inference steps: 10" | tee -a "$LOG_FILE"
 echo "- LR: 5e-6" | tee -a "$LOG_FILE"
 echo "- Max steps: 50" | tee -a "$LOG_FILE"
@@ -73,7 +73,7 @@ python -u -m src.train_vitonhd_dpo \
   --dpo_frequency 0.1 \
   --num_inference_steps 10 \
   --learning_rate 5e-6 \
-  --max_train_steps 50 \
+  --max_train_steps 500 \
   --batch_size 1 \
   --mixed_precision fp16 \
   --gradient_accumulation_steps 16 \
