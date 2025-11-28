@@ -105,7 +105,7 @@ def parse_args():
     parser.add_argument("--dpo_weight", type=float, default=0.5, help="Weight for DPO loss")
     parser.add_argument("--clip_i_weight", type=float, default=0.6, help="Weight for CLIP-I score")
     parser.add_argument("--clip_t_weight", type=float, default=0.4, help="Weight for CLIP-T score")
-    parser.add_argument("--dpo_frequency", type=float, default=0.01, help="Frequency of applying DPO loss (0.05 = 5% of batches)")
+    parser.add_argument("--dpo_frequency", type=float, default=0.05, help="Frequency of applying DPO loss (0.05 = 5% of batches)")
     parser.add_argument("--num_inference_steps", type=int, default=20, help="Number of inference steps for candidate generation")
     parser.add_argument("--image_size", type=tuple, default=(432, 288), help="Image size (height, width) for training and generation")
 
@@ -782,6 +782,8 @@ def main():
             return x.to(device=device)          # int/bool 不轉 dtype
     '''
     
+
+
     for epoch in range(1000):  # Large number, will break with max_train_steps
         for batch in train_dataloader:
             with accelerator.accumulate(unet):
@@ -815,8 +817,6 @@ def main():
                     if isinstance(x, (list, tuple)): return type(x)(_to_dev(v) for v in x)
                     return x
                 past_conditioning = _to_dev(past_conditioning)
-
-
 
                 # Sample noise and timesteps
                 noise = torch.randn_like(latents)
@@ -937,6 +937,7 @@ def main():
                             print(f"✅ Generated {len(candidates)} candidates for DPO")
 
                             # Step 2: Score candidates using CLIP (no gradients needed)
+                            # 這步會把所有的 candidates 根據 clip_image  相似度評分
                             clip_scores = []
                             with torch.no_grad():
                                 for idx, candidate in enumerate(candidates):
@@ -1160,6 +1161,9 @@ def main():
 
             if global_step >= args.max_train_steps:
                 break
+
+
+
 
     # Final save
     if accelerator.is_main_process:
