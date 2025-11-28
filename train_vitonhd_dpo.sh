@@ -58,6 +58,7 @@ echo "Starting DPO training..." | tee -a "$LOG_FILE"
 # 重要：每行最後的 '\' 後面**不可**有空白
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 python -u -m src.train_vitonhd_dpo \
+  --pretrained_model_name_or_path "alwold/stable-diffusion-2-inpainting" \
   --dataset_path "$DATASET_PATH" \
   --output_dir "$OUTPUT_DIR/$EXPERIMENT_NAME" \
   $([[ -n "$RESUME_CHECKPOINT" ]] && echo --resume_from_checkpoint "$RESUME_CHECKPOINT") \
@@ -69,7 +70,7 @@ python -u -m src.train_vitonhd_dpo \
   --dpo_weight 0.5 \
   --clip_i_weight 0.6 \
   --clip_t_weight 0.4 \
-  --dpo_frequency 0.05 \
+  --dpo_frequency 0.1 \
   --num_inference_steps 10 \
   --learning_rate 5e-6 \
   --max_train_steps 50 \

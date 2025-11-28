@@ -117,8 +117,8 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--max_train_steps", type=int, default=1000)
     parser.add_argument("--mixed_precision", type=str, default="fp16", choices=["no", "fp16", "bf16"])
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=16)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=4)  # 11/28 from 16 -> 4
+    parser.add_argument("--batch_size", type=int, default=4)  # 11/28 from 1 -> 4
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
 
@@ -784,7 +784,7 @@ def main():
     
 
 
-    for epoch in range(1000):  # Large number, will break with max_train_steps
+    while global_step < args.max_train_steps:  # Large number, will break with max_train_steps
         for batch in train_dataloader:
             with accelerator.accumulate(unet):
                 # Extract batch data
@@ -916,8 +916,7 @@ def main():
 
                 # (重點在這裡)DPO loss computation (with probability) - only on first accumulation step
                 dpo_loss = torch.tensor(0.0).to(accelerator.device)
-                if (random.random() < args.dpo_frequency and global_step > 0 and
-                    last_dpo_step != global_step):  # Only once per global step
+                if (random.random() < args.dpo_frequency and global_step > 0 and last_dpo_step != global_step):  # Only once per global step
                     try:
                         last_dpo_step = global_step  # Mark this step as having DPO
                         print(f"\n🔥 ATTEMPTING DPO at step {global_step} (once per step)")
