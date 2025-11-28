@@ -73,7 +73,7 @@ python -u -m src.train_vitonhd_dpo \
   --dpo_frequency 0.1 \
   --num_inference_steps 10 \
   --learning_rate 5e-6 \
-  --max_train_steps 500 \
+  --max_train_steps 2000 \
   --batch_size 1 \
   --mixed_precision fp16 \
   --gradient_accumulation_steps 16 \
