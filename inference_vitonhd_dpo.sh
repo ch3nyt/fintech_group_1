@@ -53,11 +53,12 @@ echo "Starting DPO inference..." | tee -a "$LOG_FILE"
 # Option 1: Use evolved/generated captions (default)
 echo "Using evolved caption generation..." | tee -a "$LOG_FILE"
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/eval_temporal.py \
+    --pretrained_model_name_or_path "alwold/stable-diffusion-2-inpainting" \
     --dataset_path $DATASET_PATH \
     --checkpoint_path $CHECKPOINT_PATH \
-    --output_dir $OUTPUT_DIR/$EXPERIMENT_NAME \
+    --output_dir $OUTPUT_DIR/$ \
     --num_past_weeks 8 \
-    --temporal_weight_decay 0.8 \
+    --temporal_weight_decay 0.8 \EXPERIMENT_NAME
     --batch_size 1 \
     --num_workers_test 1 \
     --guidance_scale 5.0 \
