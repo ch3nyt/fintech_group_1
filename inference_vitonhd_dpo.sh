@@ -57,7 +57,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 ./src/eval_temporal.py 
     --checkpoint_path $CHECKPOINT_PATH \
     --output_dir $OUTPUT_DIR/$ \
     --num_past_weeks 8 \
-    --temporal_weight_decay 0.8 \EXPERIMENT_NAME
+    --temporal_weight_decay 0.8 \
     --batch_size 1 \
     --num_workers_test 1 \
     --guidance_scale 5.0 \
