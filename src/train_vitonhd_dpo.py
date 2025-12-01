@@ -194,7 +194,7 @@ def generate_candidates(
         mask_pil = transforms.ToPILImage()(mask_tensor.cpu())
 
         # Memory optimization: Use smaller resolution for candidate generation
-        target_height, target_width = 144, 96  # Ultra-small resolution for maximum memory efficiency
+        target_height, target_width = 512, 384  # [normal now]. # Ultra-small resolution for maximum memory efficiency
 
         # Generate candidates with different seeds for diversity
         for i in range(actual_num_candidates):
