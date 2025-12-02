@@ -153,7 +153,7 @@ class TemporalVitonHDDataset(data.Dataset):
         items in the same category. Now uses hash-based selection for diversity.
         """
         samples = []
-        week_keys = list(self.weekly_data.keys())
+        week_keys = list(self.weekly_data.keys())  # weekly data uses year and week for keys, store all info of a product.
 
         # Need at least num_past_weeks + 1 weeks
         if len(week_keys) <= self.num_past_weeks:
@@ -342,7 +342,7 @@ class TemporalVitonHDDataset(data.Dataset):
             # Truncate individual captions first to prevent overflow
             max_caption_len = 50  # characters per caption
             truncated_past_captions = [
-                cap[:max_caption_len] + "..." if len(cap) > max_caption_len else cap
+                cap[:max_caption_len] + "..." if len(cap) > max_caption_len else cap 
                 for cap in past_captions_list
             ]
 
@@ -356,7 +356,7 @@ class TemporalVitonHDDataset(data.Dataset):
 
             # Final length check
             if len(combined_caption) > 200:
-                combined_caption = combined_caption[:200] + "..."
+                combined_caption = combined_caption[:200] + "..."  # trending style: 上週, evolved from 上上週, ... (每部分上限 50 字)
 
             # Encode combined caption
             combined_captions = self.tokenizer(
@@ -369,7 +369,7 @@ class TemporalVitonHDDataset(data.Dataset):
 
             past_conditioning = {
                 'weighted_sketch': weighted_sketch,
-                'combined_captions': combined_captions,
+                'combined_captions': combined_captions,  # encoded combined caption
                 'combined_caption_text': combined_caption
             }
         else:
