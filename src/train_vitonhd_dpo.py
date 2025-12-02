@@ -790,10 +790,16 @@ def main():
                 # Extract batch data
                 images = batch['image']
                 masks = batch['inpaint_mask']
-                captions = batch['captions']
+                captions = batch['captions']  # encoded "combined_caption_text"
                 past_conditioning = batch['past_conditioning']
                 temporal_weights = batch['temporal_weights']
-
+                '''
+                past_conditioning = {
+                    'weighted_sketch': target_sketch,
+                    'combined_captions': target_captions,  
+                    'combined_caption_text': target_caption_text
+                }
+                '''
                 batch_size = images.shape[0]
 
                 # Encode images to latent space
@@ -840,6 +846,10 @@ def main():
                 encoder_hidden_states = text_encoder(captions)[0]
                 10/06 先丟 tokenizer 再去 text_encoder
                 '''
+                '''
+                12/02 batch["captions"] 已經是 batch["combined_caption_text"] 的 embedding.我直接將他丟進 text_encoder
+
+
                 def normalize_to_text_list(x):
                     # 期望：x 最終變成 List[str]
                     if x is None:
@@ -866,6 +876,11 @@ def main():
                 # 你原註解寫「文字編碼固定」→ no_grad 是合理的
                 with torch.no_grad():
                     encoder_hidden_states = text_encoder(**tok).last_hidden_state   # [B, 77, D]
+                '''
+                # 12/02 修改：直接使用 batch["captions"] 作為 encoder_hidden_states
+                with torch.no_grad():
+                    encoder_hidden_states = text_encoder(batch["captions"].to(device=device, dtype=text_encoder.dtype))[0]
+
 
                 # Prepare SD2 inpainting conditioning (9 channels total)
                 # Resize mask to latent space
